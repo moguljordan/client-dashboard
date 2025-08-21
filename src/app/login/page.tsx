@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useRouter } from "next/navigation";
-import { LogIn } from "lucide-react";
+import Image from "next/image"; // ✅ Next.js optimized images
 
 export default function LoginPage() {
   const { user, loginWithGoogle } = useAuth();
@@ -33,11 +33,21 @@ export default function LoginPage() {
   return (
     <div className="min-h-screen bg-black text-white flex items-center justify-center p-4">
       <div className="bg-neutral-950 rounded-xl border border-neutral-800 w-full max-w-md p-8 shadow-2xl">
+        
+        {/* Logo replaces Lucide icon */}
+        <div className="flex justify-center mb-6">
+          <Image
+            src="/logo.png"   // ✅ Your main logo in /public
+            alt="App Logo"
+            width={100}
+            height={100}
+            priority
+            className="rounded-lg"
+          />
+        </div>
+
         {/* Header */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-12 h-12 bg-white text-black rounded-lg mb-4">
-            <LogIn className="w-6 h-6" />
-          </div>
           <h1 className="text-2xl font-bold mb-2">Welcome</h1>
           <p className="text-neutral-400">Sign in to your dashboard</p>
         </div>
@@ -62,10 +72,11 @@ export default function LoginPage() {
             </>
           ) : (
             <>
-              <img
-                src="/google-icon.svg"
+              <Image
+                src="/google-icon.svg"  // ✅ must be in /public
                 alt="Google"
-                className="w-5 h-5"
+                width={20}
+                height={20}
               />
               Continue with Google
             </>
