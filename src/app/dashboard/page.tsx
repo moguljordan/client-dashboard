@@ -23,6 +23,7 @@ import {
   DropResult,
 } from "@hello-pangea/dnd";
 
+// ----- Types -----
 type TaskStatus = "new" | "in-progress" | "review" | "done";
 
 interface FileItem {
@@ -42,8 +43,8 @@ interface Task {
   title: string;
   description: string;
   status: TaskStatus;
-  date?: string;
-  dueDate?: string;
+  date?: string; // created date
+  dueDate?: string; // 🔥 new
   files: FileItem[];
   comments: CommentItem[];
 }
@@ -58,6 +59,10 @@ interface Project {
 
 const PIPELINE: TaskStatus[] = ["new", "in-progress", "review", "done"];
 
+function classNames(...list: (string | false | null | undefined)[]) {
+  return list.filter(Boolean).join(" ");
+}
+
 function useDebounce<T>(value: T, delay = 400) {
   const [debounced, setDebounced] = useState(value);
   useEffect(() => {
@@ -67,17 +72,21 @@ function useDebounce<T>(value: T, delay = 400) {
   return debounced;
 }
 
+// 🔥 Helper for due date highlighting
 function getDueDateClass(dueDate?: string) {
   if (!dueDate) return "text-gray-500";
   const today = new Date();
   const due = new Date(dueDate);
+
   const isOverdue = due < new Date(today.toDateString());
   const isToday = due.toDateString() === today.toDateString();
+
   if (isOverdue) return "text-red-600 font-medium";
   if (isToday) return "text-orange-500 font-medium";
   return "text-gray-500";
 }
 
+// ----- Component -----
 export default function DashboardPage() {
   const { user } = useAuth();
   const [project, setProject] = useState<Project | null>(null);
@@ -95,8 +104,10 @@ export default function DashboardPage() {
   const [editDesc, setEditDesc] = useState("");
   const debouncedDesc = useDebounce(editDesc, 400);
 
+  // Load project from Firestore
   useEffect(() => {
     if (!user) return;
+
     const pRef = doc(db, "users", user.uid, "projects", "default");
 
     getDoc(pRef).then(async (snap) => {
@@ -136,6 +147,7 @@ export default function DashboardPage() {
     return () => unsubSnap();
   }, [user]);
 
+  // keep modal inputs in sync
   useEffect(() => {
     if (selectedTask) {
       setEditTitle(selectedTask.title ?? "");
@@ -154,7 +166,10 @@ export default function DashboardPage() {
   async function persistTasks(nextTasks: Task[]) {
     if (!projectRef) return;
     try {
-      await updateDoc(projectRef, { tasks: nextTasks, updatedAt: serverTimestamp() });
+      await updateDoc(projectRef, {
+        tasks: nextTasks,
+        updatedAt: serverTimestamp(),
+      });
     } catch (e: any) {
       console.error(e);
       setErrMsg(e.message ?? "Failed to save changes.");
@@ -173,7 +188,7 @@ export default function DashboardPage() {
       description: "",
       status: "new",
       date: new Date().toISOString(),
-      dueDate: "",
+      dueDate: "", // 🔥 default empty
       files: [],
       comments: [],
     };
@@ -184,7 +199,9 @@ export default function DashboardPage() {
 
   async function updateTask(taskId: string, updates: Partial<Task>) {
     if (!project) return;
-    const next = project.tasks.map((t) => (t.id === taskId ? { ...t, ...updates } : t));
+    const next = project.tasks.map((t) =>
+      t.id === taskId ? { ...t, ...updates } : t
+    );
     setTasksLocal(next);
     await persistTasks(next);
   }
@@ -237,25 +254,30 @@ export default function DashboardPage() {
     }
   }
 
-  if (loading) return <div className="text-center text-gray-500">Loading board...</div>;
-  if (!user) return <div className="text-center text-gray-500">Please log in.</div>;
+  if (loading) {
+    return <div className="text-center text-gray-500">Loading board...</div>;
+  }
+
+  if (!user) {
+    return <div className="text-center text-gray-500">Please log in.</div>;
+  }
 
   return (
-    <div className="p-6 bg-white min-h-screen text-black">
-      <h1 className="text-2xl font-bold mb-6">{project?.title ?? "Board"}</h1>
+    <div className="p-6 bg-gray-50 min-h-screen text-gray-900">
+      <h1 className="text-2xl font-bold mb-4">{project?.title ?? "Board"}</h1>
       {errMsg && <div className="mb-2 text-red-600">{errMsg}</div>}
 
       <DragDropContext onDragEnd={onDragEnd}>
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           {PIPELINE.map((status) => (
             <Droppable droppableId={status} key={status}>
               {(provided) => (
                 <div
                   ref={provided.innerRef}
                   {...provided.droppableProps}
-                  className="rounded-xl bg-gray-50 border border-gray-200 p-4 min-h-[420px] shadow-sm"
+                  className="rounded-lg bg-white border border-gray-200 p-4 min-h-[400px]"
                 >
-                  <h3 className="capitalize mb-3 font-semibold text-gray-700">{status.replace("-", " ")}</h3>
+                  <h3 className="capitalize mb-2 font-semibold">{status.replace("-", " ")}</h3>
                   {status === "new" && (
                     <form
                       onSubmit={async (e) => {
@@ -267,19 +289,14 @@ export default function DashboardPage() {
                           input.value = "";
                         }
                       }}
-                      className="flex gap-2 mb-4"
+                      className="flex gap-2 mb-3"
                     >
                       <input
                         name="taskTitle"
                         placeholder="Add task..."
-                        className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
+                        className="flex-1 border border-gray-300 rounded px-2 py-1 text-sm"
                       />
-                      <button
-                        type="submit"
-                        className="bg-blue-600 text-white px-3 py-2 rounded-lg text-sm hover:bg-blue-700 transition"
-                      >
-                        Add
-                      </button>
+                      <button type="submit" className="bg-orange-600 text-white px-3 py-1 rounded text-sm">Add</button>
                     </form>
                   )}
                   {(project?.tasks || [])
@@ -292,7 +309,7 @@ export default function DashboardPage() {
                             {...prov.draggableProps}
                             {...prov.dragHandleProps}
                             onClick={() => setSelectedTaskId(task.id)}
-                            className="p-3 mb-3 bg-white border border-gray-200 rounded-lg cursor-pointer hover:shadow"
+                            className="p-3 mb-2 bg-gray-50 border border-gray-200 rounded cursor-pointer hover:bg-gray-100"
                           >
                             <div className="font-medium">{task.title}</div>
                             {task.description && (
@@ -318,18 +335,18 @@ export default function DashboardPage() {
       {/* Modal */}
       {selectedTask && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div ref={modalRef} className="bg-white rounded-xl p-6 w-[95vw] max-w-2xl shadow-lg">
+          <div ref={modalRef} className="bg-white rounded-lg p-6 w-[95vw] max-w-2xl shadow-lg">
             {/* Title + close */}
             <div className="flex justify-between items-center mb-4">
               <input
                 value={editTitle}
                 onChange={(e) => setEditTitle(e.target.value)}
-                className="flex-1 border border-gray-300 rounded-lg px-3 py-2 font-semibold focus:outline-none focus:border-blue-500"
+                className="flex-1 border border-gray-300 rounded px-3 py-2 font-semibold"
                 placeholder="Task title"
               />
               <button
                 onClick={() => setSelectedTaskId(null)}
-                className="ml-3 px-3 py-2 rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-100"
+                className="ml-3 px-3 py-2 rounded border border-gray-300 text-gray-600 hover:bg-gray-100"
               >
                 Close
               </button>
@@ -343,7 +360,7 @@ export default function DashboardPage() {
                   value={editDesc}
                   onChange={(e) => setEditDesc(e.target.value)}
                   placeholder="Add a detailed description…"
-                  className="w-full min-h-[120px] border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
+                  className="w-full min-h-[120px] border border-gray-300 rounded px-3 py-2 text-sm"
                 />
               </div>
 
@@ -354,7 +371,7 @@ export default function DashboardPage() {
                   <select
                     value={selectedTask.status}
                     onChange={(e) => moveTask(selectedTask.id, e.target.value as TaskStatus)}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
+                    className="w-full border border-gray-300 rounded px-3 py-2 text-sm"
                   >
                     {PIPELINE.map((s) => (
                       <option key={s} value={s}>
@@ -364,13 +381,14 @@ export default function DashboardPage() {
                   </select>
                 </div>
 
+                {/* 🔥 Due date */}
                 <div>
                   <label className="block text-sm text-gray-500 mb-1">Due Date</label>
                   <input
                     type="date"
                     value={selectedTask.dueDate ? selectedTask.dueDate.split("T")[0] : ""}
                     onChange={(e) => updateTask(selectedTask.id, { dueDate: e.target.value })}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
+                    className="w-full border border-gray-300 rounded px-3 py-2 text-sm"
                   />
                 </div>
 
@@ -408,7 +426,7 @@ export default function DashboardPage() {
               <h4 className="font-semibold text-gray-700 mb-2">Comments</h4>
               <div className="max-h-40 overflow-y-auto space-y-2 mb-2">
                 {(selectedTask.comments ?? []).map((c, i) => (
-                  <div key={i} className="border border-gray-200 rounded-lg px-3 py-2 text-sm bg-gray-50">
+                  <div key={i} className="border border-gray-200 rounded px-3 py-2 text-sm bg-gray-50">
                     <div className="text-xs text-gray-500 mb-1">
                       {c.author || "User"} · {c.at ? new Date(c.at).toLocaleString() : ""}
                     </div>
@@ -431,11 +449,11 @@ export default function DashboardPage() {
                 <input
                   name="comment"
                   placeholder="Write a comment…"
-                  className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
+                  className="flex-1 border border-gray-300 rounded px-2 py-2 text-sm"
                 />
                 <button
                   type="submit"
-                  className="px-3 py-2 rounded-lg bg-blue-600 text-white text-sm hover:bg-blue-700 transition"
+                  className="px-3 py-2 rounded bg-orange-600 text-white text-sm"
                 >
                   Add
                 </button>
