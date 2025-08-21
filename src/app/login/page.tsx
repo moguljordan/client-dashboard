@@ -52,7 +52,7 @@ export default function LoginPage() {
             {isLogin ? <LogIn className="w-6 h-6" /> : <UserPlus className="w-6 h-6" />}
           </div>
           <h1 className="text-2xl font-bold mb-2">
-            {isLogin ? 'Welcome Back' : 'Create Account'}
+            {isLogin ? 'Welcome' : 'Create Account'}
           </h1>
           <p className="text-neutral-400">
             {isLogin ? 'Sign in to your dashboard' : 'Sign up to get started'}
