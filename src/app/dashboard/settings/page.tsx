@@ -20,7 +20,6 @@ import {
 export default function SettingsPage() {
   const { user } = useAuth();
 
-  // Profile state
   const [displayName, setDisplayName] = useState(user?.displayName || "");
   const [phone, setPhone] = useState("");
   const [jobTitle, setJobTitle] = useState("");
@@ -31,7 +30,6 @@ export default function SettingsPage() {
   const [status, setStatus] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  // Load Firestore profile
   useEffect(() => {
     async function loadProfile() {
       if (!user) return;
@@ -49,40 +47,20 @@ export default function SettingsPage() {
   }, [user]);
 
   if (!user) {
-    return <div className="p-6 text-gray-500">Please log in to view settings.</div>;
+    return <div className="p-6 text-gray-400 bg-black min-h-screen">Please log in to view settings.</div>;
   }
 
   async function handleSaveChanges() {
     try {
       setLoading(true);
-
-      // Update Firebase Auth profile
       await updateProfile(user, { displayName });
-
-      if (email && email !== user.email) {
-        await updateEmail(user, email);
-      }
-
+      if (email && email !== user.email) await updateEmail(user, email);
       if (password.length >= 6) {
         await updatePassword(user, password);
-        setPassword(""); // clear field after update
+        setPassword("");
       }
-
-      // Update Firestore profile
       const ref = doc(db, "users", user.uid);
-      await setDoc(
-        ref,
-        {
-          displayName,
-          phone,
-          jobTitle,
-          address,
-          email,
-          updatedAt: serverTimestamp(),
-        },
-        { merge: true }
-      );
-
+      await setDoc(ref, { displayName, phone, jobTitle, address, email, updatedAt: serverTimestamp() }, { merge: true });
       setStatus("Changes saved successfully.");
     } catch (err: any) {
       setStatus("Error: " + err.message);
@@ -108,10 +86,7 @@ export default function SettingsPage() {
     try {
       setLoading(true);
       await deleteUser(user);
-
-      const ref = doc(db, "users", user.uid);
-      await setDoc(ref, { deletedAt: serverTimestamp() }, { merge: true });
-
+      await setDoc(doc(db, "users", user.uid), { deletedAt: serverTimestamp() }, { merge: true });
       setStatus("Account deleted.");
     } catch (err: any) {
       setStatus("Error: " + err.message);
@@ -121,80 +96,80 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="p-6 bg-gray-50 min-h-screen text-gray-900">
+    <div className="p-6 bg-black min-h-screen text-white">
       <h1 className="text-2xl font-bold mb-6">My Account</h1>
 
       {status && (
-        <div className="mb-4 p-3 rounded border text-sm bg-gray-100 border-gray-300 text-gray-700">
+        <div className="mb-4 p-3 rounded border text-sm bg-neutral-900 border-neutral-700 text-gray-300">
           {status}
         </div>
       )}
 
       <div className="space-y-6 max-w-lg">
-        {/* Profile Info */}
-        <div className="bg-white border border-gray-200 rounded-lg p-4 shadow-sm">
+        {/* Profile + Account Form */}
+        <div className="bg-neutral-950 border border-neutral-800 rounded-lg p-4 shadow-sm">
           <h2 className="text-lg font-semibold mb-3">Profile</h2>
 
-          <label className="block text-sm font-medium text-gray-600 mb-1">Name</label>
+          <label className="block text-sm text-gray-400 mb-1">Name</label>
           <input
             type="text"
             value={displayName}
             onChange={(e) => setDisplayName(e.target.value)}
-            className="w-full border border-gray-300 rounded px-3 py-2 mb-3"
+            className="w-full bg-black text-white border border-neutral-700 rounded px-3 py-2 mb-3"
           />
 
-          <label className="block text-sm font-medium text-gray-600 mb-1">Phone</label>
+          <label className="block text-sm text-gray-400 mb-1">Phone</label>
           <input
             type="text"
             value={phone}
             onChange={(e) => setPhone(e.target.value)}
-            className="w-full border border-gray-300 rounded px-3 py-2 mb-3"
+            className="w-full bg-black text-white border border-neutral-700 rounded px-3 py-2 mb-3"
           />
 
-          <label className="block text-sm font-medium text-gray-600 mb-1">Job Title</label>
+          <label className="block text-sm text-gray-400 mb-1">Job Title</label>
           <input
             type="text"
             value={jobTitle}
             onChange={(e) => setJobTitle(e.target.value)}
-            className="w-full border border-gray-300 rounded px-3 py-2 mb-3"
+            className="w-full bg-black text-white border border-neutral-700 rounded px-3 py-2 mb-3"
           />
 
-          <label className="block text-sm font-medium text-gray-600 mb-1">Address</label>
+          <label className="block text-sm text-gray-400 mb-1">Address</label>
           <textarea
             value={address}
             onChange={(e) => setAddress(e.target.value)}
-            className="w-full border border-gray-300 rounded px-3 py-2 mb-3"
+            className="w-full bg-black text-white border border-neutral-700 rounded px-3 py-2 mb-3"
           />
 
-          <label className="block text-sm font-medium text-gray-600 mb-1">Email</label>
+          <label className="block text-sm text-gray-400 mb-1">Email</label>
           <input
             type="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            className="w-full border border-gray-300 rounded px-3 py-2 mb-3"
+            className="w-full bg-black text-white border border-neutral-700 rounded px-3 py-2 mb-3"
           />
 
-          <label className="block text-sm font-medium text-gray-600 mb-1">New Password</label>
+          <label className="block text-sm text-gray-400 mb-1">New Password</label>
           <input
             type="password"
             placeholder="Leave blank to keep current"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            className="w-full border border-gray-300 rounded px-3 py-2 mb-3"
+            className="w-full bg-black text-white border border-neutral-700 rounded px-3 py-2 mb-3"
           />
 
           <div className="flex justify-between">
             <button
               onClick={handleResetPassword}
               disabled={loading}
-              className="bg-gray-200 text-gray-800 px-4 py-2 rounded hover:bg-gray-300 text-sm"
+              className="bg-neutral-800 text-gray-200 px-4 py-2 rounded hover:bg-neutral-700 text-sm"
             >
               Send Password Reset Email
             </button>
             <button
               onClick={handleSaveChanges}
               disabled={loading}
-              className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+              className="bg-white text-black px-4 py-2 rounded hover:bg-gray-200"
             >
               {loading ? "Saving..." : "Save Changes"}
             </button>
@@ -202,8 +177,8 @@ export default function SettingsPage() {
         </div>
 
         {/* Account Actions */}
-        <div className="bg-white border border-red-300 rounded-lg p-4 shadow-sm">
-          <h2 className="text-lg font-semibold mb-3 text-red-600">Account</h2>
+        <div className="bg-neutral-950 border border-red-700 rounded-lg p-4 shadow-sm">
+          <h2 className="text-lg font-semibold mb-3 text-red-500">Account</h2>
           <button
             onClick={handleDeleteAccount}
             disabled={loading}
