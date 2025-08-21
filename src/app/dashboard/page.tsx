@@ -74,16 +74,6 @@ function getDueDateClass(dueDate?: string) {
   return "text-gray-500";
 }
 
-// 🔥 debounce helper
-function useDebounce<T>(value: T, delay = 500) {
-  const [debounced, setDebounced] = useState(value);
-  useEffect(() => {
-    const handler = setTimeout(() => setDebounced(value), delay);
-    return () => clearTimeout(handler);
-  }, [value, delay]);
-  return debounced;
-}
-
 // ----- Component -----
 export default function DashboardPage() {
   const { user } = useAuth();
@@ -100,9 +90,6 @@ export default function DashboardPage() {
   );
   const [editTitle, setEditTitle] = useState("");
   const [editDesc, setEditDesc] = useState("");
-
-  const debouncedTitle = useDebounce(editTitle, 500);
-  const debouncedDesc = useDebounce(editDesc, 500);
 
   const projectRef = useMemo(() => {
     if (!user) return null;
@@ -179,16 +166,6 @@ export default function DashboardPage() {
     }
   }, [selectedTask]);
 
-  // 🔥 auto-save edits
-  useEffect(() => {
-    if (selectedTask) {
-      updateTask(selectedTask.id, {
-        title: debouncedTitle,
-        description: debouncedDesc,
-      });
-    }
-  }, [debouncedTitle, debouncedDesc]);
-
   async function persistTasks(nextTasks: Task[]) {
     if (!projectRef) return;
     try {
@@ -235,6 +212,8 @@ export default function DashboardPage() {
 
   async function deleteTask(taskId: string) {
     if (!project) return;
+    const confirmed = confirm("Are you sure you want to delete this task?");
+    if (!confirmed) return;
     const next = project.tasks.filter((t) => t.id !== taskId);
     setTasksLocal(next);
     await persistTasks(next);
@@ -243,7 +222,7 @@ export default function DashboardPage() {
 
   const onDragEnd = async (result: DropResult) => {
     if (!project) return;
-    const { destination, source, draggableId } = result;
+    const { destination, source } = result;
     if (!destination) return;
 
     const sourceCol = source.droppableId as TaskStatus;
@@ -310,28 +289,34 @@ export default function DashboardPage() {
     }
   }
 
-  // 🔥 close modal + save
-  function handleSaveAndClose() {
-    if (selectedTask) {
-      updateTask(selectedTask.id, {
-        title: editTitle,
-        description: editDesc,
-      });
-    }
-    setSelectedTaskId(null);
-  }
-
-  // 🔥 detect double-click outside modal
+  // 🔥 Auto-save on modal close/outside click
   useEffect(() => {
-    function handleClickOutside(e: MouseEvent) {
-      if (modalRef.current && !modalRef.current.contains(e.target as Node)) {
-        if (e.detail === 2) {
-          handleSaveAndClose();
+    function handleClickOutside(event: MouseEvent) {
+      if (modalRef.current && !modalRef.current.contains(event.target as Node)) {
+        if (selectedTask) {
+          updateTask(selectedTask.id, {
+            title: editTitle,
+            description: editDesc,
+          });
         }
+        setSelectedTaskId(null);
       }
     }
-    document.addEventListener("click", handleClickOutside);
-    return () => document.removeEventListener("click", handleClickOutside);
+    if (selectedTask) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [selectedTask, editTitle, editDesc]);
+
+  // 🔥 Auto-save while typing (debounced 1.5s)
+  useEffect(() => {
+    if (!selectedTask) return;
+    const timeout = setTimeout(() => {
+      updateTask(selectedTask.id, { title: editTitle, description: editDesc });
+    }, 1500);
+    return () => clearTimeout(timeout);
   }, [editTitle, editDesc, selectedTask]);
 
   if (loading) {
@@ -407,7 +392,7 @@ export default function DashboardPage() {
                           >
                             <div className="font-medium">{task.title}</div>
                             {task.description && (
-                              <div className="text-xs text-gray-500 mt-1">
+                              <div className="text-xs text-gray-500 mt-1 line-clamp-3">
                                 {task.description}
                               </div>
                             )}
@@ -440,7 +425,7 @@ export default function DashboardPage() {
             ref={modalRef}
             className="bg-white rounded-lg p-6 w-[95vw] max-w-2xl shadow-lg"
           >
-            {/* Title + actions */}
+            {/* Title + close */}
             <div className="flex justify-between items-center mb-4">
               <input
                 value={editTitle}
@@ -448,7 +433,7 @@ export default function DashboardPage() {
                 className="flex-1 border border-gray-300 rounded px-3 py-2 font-semibold"
                 placeholder="Task title"
               />
-              <div className="flex gap-2 ml-3">
+              <div className="flex gap-2">
                 <button
                   onClick={() => deleteTask(selectedTask.id)}
                   className="px-3 py-2 rounded border border-red-500 text-red-600 hover:bg-red-50"
@@ -456,7 +441,13 @@ export default function DashboardPage() {
                   Delete
                 </button>
                 <button
-                  onClick={handleSaveAndClose}
+                  onClick={() => {
+                    updateTask(selectedTask.id, {
+                      title: editTitle,
+                      description: editDesc,
+                    });
+                    setSelectedTaskId(null);
+                  }}
                   className="px-3 py-2 rounded border border-gray-300 text-gray-600 hover:bg-gray-100"
                 >
                   Close
@@ -602,4 +593,3 @@ export default function DashboardPage() {
     </div>
   );
 }
-
