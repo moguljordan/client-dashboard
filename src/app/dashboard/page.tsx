@@ -62,7 +62,6 @@ function classNames(...list: (string | false | null | undefined)[]) {
   return list.filter(Boolean).join(" ");
 }
 
-// debounce helper (for description auto-save)
 function useDebounce<T>(value: T, delay = 400) {
   const [debounced, setDebounced] = useState(value);
   useEffect(() => {
@@ -240,17 +239,17 @@ export default function DashboardPage() {
   }
 
   if (loading) {
-    return <div className="text-center text-gray-400">Loading board...</div>;
+    return <div className="text-center text-gray-500">Loading board...</div>;
   }
 
   if (!user) {
-    return <div className="text-center text-gray-400">Please log in.</div>;
+    return <div className="text-center text-gray-500">Please log in.</div>;
   }
 
   return (
-    <div className="p-6 text-white">
+    <div className="p-6 bg-gray-50 min-h-screen text-gray-900">
       <h1 className="text-2xl font-bold mb-4">{project?.title ?? "Board"}</h1>
-      {errMsg && <div className="mb-2 text-red-400">{errMsg}</div>}
+      {errMsg && <div className="mb-2 text-red-600">{errMsg}</div>}
 
       <DragDropContext onDragEnd={onDragEnd}>
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -260,7 +259,7 @@ export default function DashboardPage() {
                 <div
                   ref={provided.innerRef}
                   {...provided.droppableProps}
-                  className="rounded-lg bg-gray-900 p-4 min-h-[400px]"
+                  className="rounded-lg bg-white border border-gray-200 p-4 min-h-[400px]"
                 >
                   <h3 className="capitalize mb-2 font-semibold">{status.replace("-", " ")}</h3>
                   {status === "new" && (
@@ -279,9 +278,9 @@ export default function DashboardPage() {
                       <input
                         name="taskTitle"
                         placeholder="Add task..."
-                        className="flex-1 bg-gray-800 rounded px-2 py-1"
+                        className="flex-1 border border-gray-300 rounded px-2 py-1 text-sm"
                       />
-                      <button type="submit" className="bg-blue-600 px-2 py-1 rounded">+</button>
+                      <button type="submit" className="bg-blue-600 text-white px-3 py-1 rounded text-sm">Add</button>
                     </form>
                   )}
                   {(project?.tasks || [])
@@ -294,11 +293,11 @@ export default function DashboardPage() {
                             {...prov.draggableProps}
                             {...prov.dragHandleProps}
                             onClick={() => setSelectedTaskId(task.id)}
-                            className="p-3 mb-2 bg-gray-800 rounded cursor-pointer"
+                            className="p-3 mb-2 bg-gray-50 border border-gray-200 rounded cursor-pointer hover:bg-gray-100"
                           >
-                            <div className="font-semibold">{task.title}</div>
+                            <div className="font-medium">{task.title}</div>
                             {task.description && (
-                              <div className="text-xs text-gray-400">{task.description}</div>
+                              <div className="text-xs text-gray-500 mt-1">{task.description}</div>
                             )}
                           </div>
                         )}
@@ -312,22 +311,122 @@ export default function DashboardPage() {
         </div>
       </DragDropContext>
 
+      {/* Modal */}
       {selectedTask && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center">
-          <div ref={modalRef} className="bg-gray-900 p-6 rounded-lg w-[500px]">
-            <input
-              value={editTitle}
-              onChange={(e) => setEditTitle(e.target.value)}
-              className="w-full mb-2 p-2 bg-gray-800 rounded"
-            />
-            <textarea
-              value={editDesc}
-              onChange={(e) => setEditDesc(e.target.value)}
-              className="w-full p-2 bg-gray-800 rounded min-h-[100px]"
-            />
-            <button onClick={() => setSelectedTaskId(null)} className="mt-4 bg-red-600 px-3 py-1 rounded">
-              Close
-            </button>
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div ref={modalRef} className="bg-white rounded-lg p-6 w-[95vw] max-w-2xl shadow-lg">
+            {/* Title + close */}
+            <div className="flex justify-between items-center mb-4">
+              <input
+                value={editTitle}
+                onChange={(e) => setEditTitle(e.target.value)}
+                className="flex-1 border border-gray-300 rounded px-3 py-2 font-semibold"
+                placeholder="Task title"
+              />
+              <button
+                onClick={() => setSelectedTaskId(null)}
+                className="ml-3 px-3 py-2 rounded border border-gray-300 text-gray-600 hover:bg-gray-100"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {/* Description */}
+              <div className="md:col-span-2">
+                <label className="block text-sm text-gray-500 mb-1">Description</label>
+                <textarea
+                  value={editDesc}
+                  onChange={(e) => setEditDesc(e.target.value)}
+                  placeholder="Add a detailed description…"
+                  className="w-full min-h-[120px] border border-gray-300 rounded px-3 py-2 text-sm"
+                />
+              </div>
+
+              {/* Metadata */}
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm text-gray-500 mb-1">Status</label>
+                  <select
+                    value={selectedTask.status}
+                    onChange={(e) => moveTask(selectedTask.id, e.target.value as TaskStatus)}
+                    className="w-full border border-gray-300 rounded px-3 py-2 text-sm"
+                  >
+                    {PIPELINE.map((s) => (
+                      <option key={s} value={s}>
+                        {s.replace("-", " ")}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm text-gray-500 mb-1">Files</label>
+                  <ul className="text-sm space-y-1 max-h-28 overflow-y-auto">
+                    {(selectedTask.files ?? []).map((f, i) => (
+                      <li key={i}>
+                        <a
+                          href={f.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-blue-600 hover:underline"
+                        >
+                          📄 {f.name}
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
+                  <input
+                    type="file"
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      if (file) await handleFileUpload(file);
+                      e.currentTarget.value = "";
+                    }}
+                    className="mt-2 text-xs"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Comments */}
+            <div className="mt-6">
+              <h4 className="font-semibold text-gray-700 mb-2">Comments</h4>
+              <div className="max-h-40 overflow-y-auto space-y-2 mb-2">
+                {(selectedTask.comments ?? []).map((c, i) => (
+                  <div key={i} className="border border-gray-200 rounded px-3 py-2 text-sm bg-gray-50">
+                    <div className="text-xs text-gray-500 mb-1">
+                      {c.author || "User"} · {c.at ? new Date(c.at).toLocaleString() : ""}
+                    </div>
+                    <div>{c.text}</div>
+                  </div>
+                ))}
+              </div>
+              <form
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  const input = e.currentTarget.elements.namedItem("comment") as HTMLInputElement;
+                  const val = input.value.trim();
+                  if (val) {
+                    await addComment(val);
+                    input.value = "";
+                  }
+                }}
+                className="flex gap-2"
+              >
+                <input
+                  name="comment"
+                  placeholder="Write a comment…"
+                  className="flex-1 border border-gray-300 rounded px-2 py-2 text-sm"
+                />
+                <button
+                  type="submit"
+                  className="px-3 py-2 rounded bg-blue-600 text-white text-sm"
+                >
+                  Add
+                </button>
+              </form>
+            </div>
           </div>
         </div>
       )}
