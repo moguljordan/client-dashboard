@@ -5,11 +5,15 @@ import { useAuth } from "@/contexts/AuthContext";
 import { db, storage } from "@/lib/firebase";
 import {
   doc,
-  getDoc,
   setDoc,
+  collection,
+  addDoc,
   updateDoc,
+  deleteDoc,
   onSnapshot,
   serverTimestamp,
+  query,
+  orderBy,
 } from "firebase/firestore";
 import {
   ref as storageRef,
@@ -23,44 +27,44 @@ import {
   DropResult,
 } from "@hello-pangea/dnd";
 
-// ----- Types -----
 type TaskStatus = "new" | "in-progress" | "review" | "done";
-
-interface FileItem {
-  name: string;
-  url: string;
-  uploadedAt?: string;
-}
-
-interface CommentItem {
-  author: string;
-  text: string;
-  at?: string;
-}
 
 interface Task {
   id: string;
   title: string;
   description: string;
   status: TaskStatus;
-  date?: string;
   dueDate?: string;
   position: number;
-  files: FileItem[];
-  comments: CommentItem[];
+  createdAt?: any;
+  updatedAt?: any;
+  // ✅ Added fields (saved to Firestore, optional so old docs still work)
+  priority?: "low" | "medium" | "high";
+  tags?: string[];
+  assignedTo?: string;
+}
+
+interface Comment {
+  id: string;
+  text: string;
+  createdAt: any;
+  author: string;
+}
+
+interface File {
+  id: string;
+  url: string;
+  name: string;
+  createdAt: any;
 }
 
 interface Project {
-  id: "default";
+  id: string;
   title: string;
-  tasks: Task[];
-  createdAt?: any;
-  updatedAt?: any;
 }
 
 const PIPELINE: TaskStatus[] = ["new", "in-progress", "review", "done"];
 
-// 🔥 Helper for due date highlighting
 function getDueDateClass(dueDate?: string) {
   if (!dueDate) return "text-gray-500";
   const today = new Date();
@@ -74,88 +78,106 @@ function getDueDateClass(dueDate?: string) {
   return "text-gray-500";
 }
 
-// ----- Component -----
 export default function DashboardPage() {
   const { user } = useAuth();
   const [project, setProject] = useState<Project | null>(null);
+  const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
   const [errMsg, setErrMsg] = useState<string | null>(null);
 
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const modalRef = useRef<HTMLDivElement>(null);
 
+  // 👇 subcollections for modal
+  const [comments, setComments] = useState<Comment[]>([]);
+  const [files, setFiles] = useState<File[]>([]);
+  const [newComment, setNewComment] = useState("");
+
   const selectedTask = useMemo(
-    () => project?.tasks.find((t) => t.id === selectedTaskId) ?? null,
-    [project, selectedTaskId]
+    () => tasks.find((t) => t.id === selectedTaskId) ?? null,
+    [tasks, selectedTaskId]
   );
   const [editTitle, setEditTitle] = useState("");
   const [editDesc, setEditDesc] = useState("");
 
+  // 🔥 references
   const projectRef = useMemo(() => {
     if (!user) return null;
     return doc(db, "users", user.uid, "projects", "default");
   }, [user]);
 
-  // Load project from Firestore
+  const tasksCol = useMemo(() => {
+    if (!projectRef) return null;
+    return collection(projectRef, "tasks");
+  }, [projectRef]);
+
+  // ✅ Load project doc + listen for tasks
   useEffect(() => {
-    if (!user) return;
-    const pRef = doc(db, "users", user.uid, "projects", "default");
+    if (!user || !projectRef || !tasksCol) return;
 
-    getDoc(pRef).then(async (snap) => {
-      if (!snap.exists()) {
-        const starter: Project = {
-          id: "default",
-          title: "Design Board",
-          tasks: [],
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp(),
-        };
-        await setDoc(pRef, starter);
-      }
-    });
+    // ensure project exists
+    setDoc(projectRef, { title: "Design Board" }, { merge: true });
 
-    const unsubSnap = onSnapshot(
-      pRef,
-      async (docSnap) => {
-        const data = docSnap.data() as Project | undefined;
-        if (data) {
-          let changed = false;
-          data.tasks = (data.tasks || []).map((t: any, i: number) => {
-            if (typeof t.position !== "number") {
-              changed = true;
-              return {
-                ...t,
-                position: i,
-                files: Array.isArray(t.files) ? t.files : [],
-                comments: Array.isArray(t.comments) ? t.comments : [],
-              };
-            }
-            return {
-              ...t,
-              files: Array.isArray(t.files) ? t.files : [],
-              comments: Array.isArray(t.comments) ? t.comments : [],
-            };
-          });
-          setProject(data);
-
-          // 🔥 migrate old tasks by persisting positions
-          if (changed && projectRef) {
-            await updateDoc(projectRef, { tasks: data.tasks });
-          }
-        }
+    const q = query(tasksCol, orderBy("position", "asc"));
+    const unsub = onSnapshot(
+      q,
+      (snap) => {
+        const taskList: Task[] = [];
+        snap.forEach((docSnap) => {
+          const data = docSnap.data() as Omit<Task, "id">;
+          taskList.push({ id: docSnap.id, ...data });
+        });
+        setTasks(taskList);
+        setProject({ id: "default", title: "Design Board" });
         setLoading(false);
       },
       (err) => {
         console.error(err);
-        setErrMsg(err.message || "Failed to read project.");
+        setErrMsg(err.message || "Failed to load tasks");
         setLoading(false);
       }
     );
 
-    return () => unsubSnap();
-  }, [user, projectRef]);
+    return () => unsub();
+  }, [user, projectRef, tasksCol]);
 
-  // keep modal inputs in sync
+  // 👇 Load comments + files when a task is selected
+  useEffect(() => {
+    if (!selectedTaskId || !tasksCol) return;
+
+    const taskRef = doc(tasksCol, selectedTaskId);
+    const commentsCol = collection(taskRef, "comments");
+    const filesCol = collection(taskRef, "files");
+
+    const unsubComments = onSnapshot(
+      query(commentsCol, orderBy("createdAt", "asc")),
+      (snap) => {
+        const list: Comment[] = [];
+        snap.forEach((d) =>
+          list.push({ id: d.id, ...(d.data() as Omit<Comment, "id">) })
+        );
+        setComments(list);
+      }
+    );
+
+    const unsubFiles = onSnapshot(
+      query(filesCol, orderBy("createdAt", "desc")),
+      (snap) => {
+        const list: File[] = [];
+        snap.forEach((d) =>
+          list.push({ id: d.id, ...(d.data() as Omit<File, "id">) })
+        );
+        setFiles(list);
+      }
+    );
+
+    return () => {
+      unsubComments();
+      unsubFiles();
+    };
+  }, [selectedTaskId, tasksCol]);
+
+  // sync modal edits
   useEffect(() => {
     if (selectedTask) {
       setEditTitle(selectedTask.title ?? "");
@@ -166,130 +188,98 @@ export default function DashboardPage() {
     }
   }, [selectedTask]);
 
-  async function persistTasks(nextTasks: Task[]) {
-    if (!projectRef) return;
-    try {
-      await updateDoc(projectRef, {
-        tasks: nextTasks,
-        updatedAt: serverTimestamp(),
-      });
-    } catch (e: any) {
-      console.error(e);
-      setErrMsg(e.message ?? "Failed to save changes.");
-    }
-  }
-
-  function setTasksLocal(next: Task[]) {
-    setProject((prev) => (prev ? { ...prev, tasks: next } : prev));
-  }
-
+  // CRUD
   async function addTask(title: string) {
-    if (!project) return;
-    const newTask: Task = {
-      id: String(Date.now()),
+    if (!tasksCol || !user) return;
+    await addDoc(tasksCol, {
       title,
       description: "",
       status: "new",
-      date: new Date().toISOString(),
       dueDate: "",
-      position: project.tasks.filter((t) => t.status === "new").length,
-      files: [],
-      comments: [],
-    };
-    const next = [...project.tasks, newTask];
-    setTasksLocal(next);
-    await persistTasks(next);
+      position: tasks.filter((t) => t.status === "new").length,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+      // ✅ new structured defaults
+      priority: "medium",
+      tags: [],
+      assignedTo: user.uid,
+    });
   }
 
   async function updateTask(taskId: string, updates: Partial<Task>) {
-    if (!project) return;
-    const next = project.tasks.map((t) =>
-      t.id === taskId ? { ...t, ...updates } : t
-    );
-    setTasksLocal(next);
-    await persistTasks(next);
+    if (!tasksCol) return;
+    const taskRef = doc(tasksCol, taskId);
+    await updateDoc(taskRef, { ...updates, updatedAt: serverTimestamp() });
   }
 
   async function deleteTask(taskId: string) {
-    if (!project) return;
-    const confirmed = confirm("Are you sure you want to delete this task?");
+    if (!tasksCol) return;
+    const confirmed = confirm("Delete this task?");
     if (!confirmed) return;
-    const next = project.tasks.filter((t) => t.id !== taskId);
-    setTasksLocal(next);
-    await persistTasks(next);
+    await deleteDoc(doc(tasksCol, taskId));
     setSelectedTaskId(null);
   }
 
+  // Comments
+  async function addComment() {
+    if (!tasksCol || !selectedTaskId || !newComment.trim() || !user) return;
+    const taskRef = doc(tasksCol, selectedTaskId);
+    const commentsCol = collection(taskRef, "comments");
+    await addDoc(commentsCol, {
+      text: newComment,
+      author: user.displayName || user.email,
+      createdAt: serverTimestamp(),
+    });
+    setNewComment("");
+  }
+
+  // Files
+  async function uploadFile(file: File) {
+    if (!tasksCol || !selectedTaskId || !file) return;
+    const taskRef = doc(tasksCol, selectedTaskId);
+    const filesCol = collection(taskRef, "files");
+
+    const storagePath = `users/${user?.uid}/projects/default/tasks/${selectedTaskId}/${file.name}`;
+    const fileRef = storageRef(storage, storagePath);
+    await uploadBytes(fileRef, file);
+    const url = await getDownloadURL(fileRef);
+
+    await addDoc(filesCol, {
+      url,
+      name: file.name,
+      createdAt: serverTimestamp(),
+    });
+  }
+
+  // Drag & Drop reorder
   const onDragEnd = async (result: DropResult) => {
-    if (!project) return;
+    if (!tasksCol) return;
     const { destination, source } = result;
     if (!destination) return;
 
     const sourceCol = source.droppableId as TaskStatus;
     const destCol = destination.droppableId as TaskStatus;
 
-    const tasksInSource = project.tasks
+    const tasksInSource = tasks
       .filter((t) => t.status === sourceCol)
       .sort((a, b) => a.position - b.position);
 
-    const tasksInDest = project.tasks
+    const tasksInDest = tasks
       .filter((t) => t.status === destCol)
       .sort((a, b) => a.position - b.position);
 
     const [moved] = tasksInSource.splice(source.index, 1);
     tasksInDest.splice(destination.index, 0, { ...moved, status: destCol });
 
-    tasksInSource.forEach((t, i) => (t.position = i));
-    tasksInDest.forEach((t, i) => (t.position = i));
-
-    const next = project.tasks.map((t) => {
-      if (t.id === moved.id) {
-        return { ...moved, status: destCol, position: destination.index };
-      }
-      const foundSource = tasksInSource.find((s) => s.id === t.id);
-      const foundDest = tasksInDest.find((d) => d.id === t.id);
-      return foundSource || foundDest || t;
-    });
-
-    setTasksLocal(next);
-    await persistTasks(next);
+    tasksInSource.forEach((t, i) =>
+      updateTask(t.id, { position: i, status: sourceCol })
+    );
+    tasksInDest.forEach((t, i) =>
+      updateTask(t.id, { position: i, status: destCol })
+    );
   };
 
-  async function addComment(text: string) {
-    if (!project || !selectedTask || !text.trim()) return;
-    const safeComments = Array.isArray(selectedTask.comments)
-      ? selectedTask.comments
-      : [];
-    const nextComments = [
-      ...safeComments,
-      { author: user?.email ?? "You", text, at: new Date().toISOString() },
-    ];
-    await updateTask(selectedTask.id, { comments: nextComments });
-  }
-
-  async function handleFileUpload(file: File) {
-    if (!project || !selectedTask || !user) return;
-    try {
-      const path = `users/${user.uid}/tasks/${selectedTask.id}/${file.name}`;
-      const ref = storageRef(storage, path);
-      await uploadBytes(ref, file);
-      const url = await getDownloadURL(ref);
-
-      const safeFiles = Array.isArray(selectedTask.files)
-        ? selectedTask.files
-        : [];
-      const nextFiles = [
-        ...safeFiles,
-        { name: file.name, url, uploadedAt: new Date().toISOString() },
-      ];
-      await updateTask(selectedTask.id, { files: nextFiles });
-    } catch (e: any) {
-      console.error(e);
-      setErrMsg(e.message ?? "File upload failed.");
-    }
-  }
-
-  // 🔥 Auto-save on modal close/outside click
+  // Auto-save modal on outside click
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (modalRef.current && !modalRef.current.contains(event.target as Node)) {
@@ -305,35 +295,18 @@ export default function DashboardPage() {
     if (selectedTask) {
       document.addEventListener("mousedown", handleClickOutside);
     }
-    return () => {
-      document.removeEventListener("mousedown", handleClickOutside);
-    };
+    return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [selectedTask, editTitle, editDesc]);
 
-  // 🔥 Auto-save while typing (debounced 1.5s)
-  useEffect(() => {
-    if (!selectedTask) return;
-    const timeout = setTimeout(() => {
-      updateTask(selectedTask.id, { title: editTitle, description: editDesc });
-    }, 1500);
-    return () => clearTimeout(timeout);
-  }, [editTitle, editDesc, selectedTask]);
-
-  if (loading) {
-    return <div className="text-center text-gray-500">Loading board...</div>;
-  }
-
-  if (!user) {
-    return <div className="text-center text-gray-500">Please log in.</div>;
-  }
-
-  // 🔥 Greeting for user
-  const greetingName = user.displayName || user.email || "Friend";
+  if (loading) return <div>Loading...</div>;
+  if (!user) return <div>Please log in</div>;
 
   return (
     <div className="p-6 bg-gray-50 min-h-screen text-gray-900">
-      <h1 className="text-2xl font-bold mb-4">Hello, {greetingName}</h1>
-      {errMsg && <div className="mb-2 text-red-600">{errMsg}</div>}
+      <h1 className="text-2xl font-bold mb-4">
+        Hello, {user.displayName || user.email}
+      </h1>
+      {errMsg && <div className="text-red-600">{errMsg}</div>}
 
       <DragDropContext onDragEnd={onDragEnd}>
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -377,7 +350,7 @@ export default function DashboardPage() {
                       </button>
                     </form>
                   )}
-                  {(project?.tasks || [])
+                  {tasks
                     .filter((t) => t.status === status)
                     .sort((a, b) => a.position - b.position)
                     .map((task, index) => (
@@ -392,7 +365,7 @@ export default function DashboardPage() {
                           >
                             <div className="font-medium">{task.title}</div>
                             {task.description && (
-                              <div className="text-xs text-gray-500 mt-1 line-clamp-3">
+                              <div className="text-xs text-gray-500 mt-1 line-clamp-2">
                                 {task.description}
                               </div>
                             )}
@@ -425,7 +398,6 @@ export default function DashboardPage() {
             ref={modalRef}
             className="bg-white rounded-lg p-6 w-[95vw] max-w-2xl shadow-lg"
           >
-            {/* Title + close */}
             <div className="flex justify-between items-center mb-4">
               <input
                 value={editTitle}
@@ -441,13 +413,7 @@ export default function DashboardPage() {
                   Delete
                 </button>
                 <button
-                  onClick={() => {
-                    updateTask(selectedTask.id, {
-                      title: editTitle,
-                      description: editDesc,
-                    });
-                    setSelectedTaskId(null);
-                  }}
+                  onClick={() => setSelectedTaskId(null)}
                   className="px-3 py-2 rounded border border-gray-300 text-gray-600 hover:bg-gray-100"
                 >
                   Close
@@ -455,137 +421,81 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {/* Description */}
-              <div className="md:col-span-2">
-                <label className="block text-sm text-gray-500 mb-1">
-                  Description
-                </label>
-                <textarea
-                  value={editDesc}
-                  onChange={(e) => setEditDesc(e.target.value)}
-                  placeholder="Add a detailed description…"
-                  className="w-full min-h-[120px] border border-gray-300 rounded px-3 py-2 text-sm"
-                />
-              </div>
-
-              {/* Metadata */}
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm text-gray-500 mb-1">
-                    Status
-                  </label>
-                  <select
-                    value={selectedTask.status}
-                    onChange={(e) =>
-                      updateTask(selectedTask.id, {
-                        status: e.target.value as TaskStatus,
-                      })
-                    }
-                    className="w-full border border-gray-300 rounded px-3 py-2 text-sm"
-                  >
-                    {PIPELINE.map((s) => (
-                      <option key={s} value={s}>
-                        {s.replace("-", " ")}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* 🔥 Due date */}
-                <div>
-                  <label className="block text-sm text-gray-500 mb-1">
-                    Due Date
-                  </label>
-                  <input
-                    type="date"
-                    value={
-                      selectedTask.dueDate
-                        ? selectedTask.dueDate.split("T")[0]
-                        : ""
-                    }
-                    onChange={(e) =>
-                      updateTask(selectedTask.id, { dueDate: e.target.value })
-                    }
-                    className="w-full border border-gray-300 rounded px-3 py-2 text-sm"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm text-gray-500 mb-1">
-                    Files
-                  </label>
-                  <ul className="text-sm space-y-1 max-h-28 overflow-y-auto">
-                    {(selectedTask.files ?? []).map((f, i) => (
-                      <li key={i}>
-                        <a
-                          href={f.url}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-blue-600 hover:underline"
-                        >
-                          📄 {f.name}
-                        </a>
-                      </li>
-                    ))}
-                  </ul>
-                  <input
-                    type="file"
-                    onChange={async (e) => {
-                      const file = e.target.files?.[0];
-                      if (file) await handleFileUpload(file);
-                      e.currentTarget.value = "";
-                    }}
-                    className="mt-2 text-xs"
-                  />
-                </div>
-              </div>
-            </div>
+            <label className="block text-sm text-gray-500 mb-1">
+              Description
+            </label>
+            <textarea
+              value={editDesc}
+              onChange={(e) => setEditDesc(e.target.value)}
+              placeholder="Add a detailed description…"
+              className="w-full min-h-[120px] border border-gray-300 rounded px-3 py-2 text-sm"
+            />
 
             {/* Comments */}
             <div className="mt-6">
-              <h4 className="font-semibold text-gray-700 mb-2">Comments</h4>
-              <div className="max-h-40 overflow-y-auto space-y-2 mb-2">
-                {(selectedTask.comments ?? []).map((c, i) => (
-                  <div
-                    key={i}
-                    className="border border-gray-200 rounded px-3 py-2 text-sm bg-gray-50"
-                  >
-                    <div className="text-xs text-gray-500 mb-1">
-                      {c.author || "User"} ·{" "}
-                      {c.at ? new Date(c.at).toLocaleString() : ""}
-                    </div>
-                    <div>{c.text}</div>
+              <h3 className="text-md font-semibold mb-2">Comments</h3>
+              <div className="space-y-2 max-h-40 overflow-y-auto border border-gray-200 p-2 rounded">
+                {comments.map((c) => (
+                  <div key={c.id} className="text-sm border-b pb-1">
+                    <span className="font-medium">{c.author}: </span>
+                    {c.text}
                   </div>
                 ))}
               </div>
-              <form
-                onSubmit={async (e) => {
-                  e.preventDefault();
-                  const input =
-                    e.currentTarget.elements.namedItem(
-                      "comment"
-                    ) as HTMLInputElement;
-                  const val = input.value.trim();
-                  if (val) {
-                    await addComment(val);
-                    input.value = "";
-                  }
-                }}
-                className="flex gap-2"
-              >
+              <div className="flex gap-2 mt-2">
                 <input
-                  name="comment"
-                  placeholder="Write a comment…"
-                  className="flex-1 border border-gray-300 rounded px-2 py-2 text-sm"
+                  value={newComment}
+                  onChange={(e) => setNewComment(e.target.value)}
+                  placeholder="Write a comment..."
+                  className="flex-1 border border-gray-300 rounded px-2 py-1 text-sm"
                 />
                 <button
-                  type="submit"
-                  className="px-3 py-2 rounded bg-orange-600 text-white text-sm"
+                  onClick={addComment}
+                  className="bg-gray-800 text-white px-3 py-1 rounded text-sm"
                 >
-                  Add
+                  Post
                 </button>
-              </form>
+              </div>
+            </div>
+
+            {/* Files */}
+            <div className="mt-6">
+              <h3 className="text-md font-semibold mb-2">Files</h3>
+              <input
+                type="file"
+                onChange={(e) => {
+                  if (e.target.files?.[0]) uploadFile(e.target.files[0]);
+                }}
+              />
+              <ul className="mt-2 space-y-1 text-sm">
+                {files.map((f) => (
+                  <li key={f.id}>
+                    <a
+                      href={f.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-blue-600 underline"
+                    >
+                      {f.name}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            {/* Due Date */}
+            <div className="mt-6">
+              <label className="block text-sm text-gray-500 mb-1">
+                Due Date
+              </label>
+              <input
+                type="date"
+                value={selectedTask.dueDate || ""}
+                onChange={(e) =>
+                  updateTask(selectedTask.id, { dueDate: e.target.value })
+                }
+                className="w-full border border-gray-300 rounded px-3 py-2 text-sm"
+              />
             </div>
           </div>
         </div>
