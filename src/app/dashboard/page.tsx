@@ -43,7 +43,8 @@ interface Task {
   title: string;
   description: string;
   status: TaskStatus;
-  date?: string;
+  date?: string; // created date
+  dueDate?: string; // 🔥 new
   files: FileItem[];
   comments: CommentItem[];
 }
@@ -69,6 +70,20 @@ function useDebounce<T>(value: T, delay = 400) {
     return () => clearTimeout(t);
   }, [value, delay]);
   return debounced;
+}
+
+// 🔥 Helper for due date highlighting
+function getDueDateClass(dueDate?: string) {
+  if (!dueDate) return "text-gray-500";
+  const today = new Date();
+  const due = new Date(dueDate);
+
+  const isOverdue = due < new Date(today.toDateString());
+  const isToday = due.toDateString() === today.toDateString();
+
+  if (isOverdue) return "text-red-600 font-medium";
+  if (isToday) return "text-orange-500 font-medium";
+  return "text-gray-500";
 }
 
 // ----- Component -----
@@ -173,6 +188,7 @@ export default function DashboardPage() {
       description: "",
       status: "new",
       date: new Date().toISOString(),
+      dueDate: "", // 🔥 default empty
       files: [],
       comments: [],
     };
@@ -299,6 +315,11 @@ export default function DashboardPage() {
                             {task.description && (
                               <div className="text-xs text-gray-500 mt-1">{task.description}</div>
                             )}
+                            {task.dueDate && (
+                              <div className={`text-xs mt-1 ${getDueDateClass(task.dueDate)}`}>
+                                Due: {new Date(task.dueDate).toLocaleDateString()}
+                              </div>
+                            )}
                           </div>
                         )}
                       </Draggable>
@@ -358,6 +379,17 @@ export default function DashboardPage() {
                       </option>
                     ))}
                   </select>
+                </div>
+
+                {/* 🔥 Due date */}
+                <div>
+                  <label className="block text-sm text-gray-500 mb-1">Due Date</label>
+                  <input
+                    type="date"
+                    value={selectedTask.dueDate ? selectedTask.dueDate.split("T")[0] : ""}
+                    onChange={(e) => updateTask(selectedTask.id, { dueDate: e.target.value })}
+                    className="w-full border border-gray-300 rounded px-3 py-2 text-sm"
+                  />
                 </div>
 
                 <div>
