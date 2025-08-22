@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { useAuth } from "@/contexts/AuthContext";
-import { db, storage } from "@/lib/firebase";
+import { db } from "@/lib/firebase";
 import {
   doc,
   setDoc,
@@ -16,11 +16,6 @@ import {
   orderBy,
   Timestamp,
 } from "firebase/firestore";
-import {
-  ref as storageRef,
-  uploadBytes,
-  getDownloadURL,
-} from "firebase/storage";
 import {
   DragDropContext,
   Droppable,
@@ -51,10 +46,10 @@ interface Comment {
   author: string;
 }
 
-interface StoredFile {
+interface LinkItem {
   id: string;
+  title: string;
   url: string;
-  name: string;
   createdAt: Timestamp | null;
 }
 
@@ -84,8 +79,10 @@ export default function DashboardPage() {
 
   // subcollections for modal
   const [comments, setComments] = useState<Comment[]>([]);
-  const [files, setFiles] = useState<StoredFile[]>([]);
+  const [links, setLinks] = useState<LinkItem[]>([]);
   const [newComment, setNewComment] = useState("");
+  const [newLinkTitle, setNewLinkTitle] = useState("");
+  const [newLinkUrl, setNewLinkUrl] = useState("");
 
   const selectedTask = useMemo(
     () => tasks.find((t) => t.id === selectedTaskId) ?? null,
@@ -109,7 +106,6 @@ export default function DashboardPage() {
   useEffect(() => {
     if (!user || !projectRef || !tasksCol) return;
 
-    // ensure project exists
     setDoc(projectRef, { title: "Design Board" }, { merge: true }).catch(
       () => {}
     );
@@ -139,13 +135,13 @@ export default function DashboardPage() {
     return () => unsub();
   }, [user, projectRef, tasksCol]);
 
-  // Load comments + files when a task is selected
+  // Load comments + links when a task is selected
   useEffect(() => {
     if (!selectedTaskId || !tasksCol) return;
 
     const taskRef = doc(tasksCol, selectedTaskId);
     const commentsCol = collection(taskRef, "comments");
-    const filesCol = collection(taskRef, "files");
+    const linksCol = collection(taskRef, "links");
 
     const unsubComments = onSnapshot(
       query(commentsCol, orderBy("createdAt", "asc")),
@@ -159,21 +155,21 @@ export default function DashboardPage() {
       }
     );
 
-    const unsubFiles = onSnapshot(
-      query(filesCol, orderBy("createdAt", "desc")),
+    const unsubLinks = onSnapshot(
+      query(linksCol, orderBy("createdAt", "desc")),
       (snap) => {
-        const list: StoredFile[] = [];
+        const list: LinkItem[] = [];
         snap.forEach((d) => {
-          const data = d.data() as Omit<StoredFile, "id">;
+          const data = d.data() as Omit<LinkItem, "id">;
           list.push({ id: d.id, ...data });
         });
-        setFiles(list);
+        setLinks(list);
       }
     );
 
     return () => {
       unsubComments();
-      unsubFiles();
+      unsubLinks();
     };
   }, [selectedTaskId, tasksCol]);
 
@@ -240,28 +236,18 @@ export default function DashboardPage() {
     setNewComment("");
   }, [tasksCol, selectedTaskId, newComment, user]);
 
-  // Upload a browser file to Storage + record in Firestore
-  const uploadFile = useCallback(
-    async (file: globalThis.File) => {
-      if (!tasksCol || !selectedTaskId || !user) return;
-      const taskRef = doc(tasksCol, selectedTaskId);
-      const filesCol = collection(taskRef, "files");
-
-      const storagePath = `users/${user.uid}/projects/default/tasks/${selectedTaskId}/${file.name}`;
-      const fileRef = storageRef(storage, storagePath);
-
-      // globalThis.File extends Blob, so this is valid
-      await uploadBytes(fileRef, file);
-      const url = await getDownloadURL(fileRef);
-
-      await addDoc(filesCol, {
-        url,
-        name: file.name,
-        createdAt: serverTimestamp(),
-      });
-    },
-    [tasksCol, selectedTaskId, user]
-  );
+  const addLink = useCallback(async () => {
+    if (!tasksCol || !selectedTaskId || !newLinkUrl.trim()) return;
+    const taskRef = doc(tasksCol, selectedTaskId);
+    const linksCol = collection(taskRef, "links");
+    await addDoc(linksCol, {
+      title: newLinkTitle || newLinkUrl,
+      url: newLinkUrl,
+      createdAt: serverTimestamp(),
+    });
+    setNewLinkTitle("");
+    setNewLinkUrl("");
+  }, [tasksCol, selectedTaskId, newLinkTitle, newLinkUrl]);
 
   // Drag & Drop reorder
   const onDragEnd = useCallback(
@@ -284,7 +270,6 @@ export default function DashboardPage() {
       const [moved] = tasksInSource.splice(source.index, 1);
       tasksInDest.splice(destination.index, 0, { ...moved, status: destCol });
 
-      // persist new positions
       await Promise.all([
         ...tasksInSource.map((t, i) =>
           updateTask(t.id, { position: i, status: sourceCol })
@@ -297,7 +282,7 @@ export default function DashboardPage() {
     [tasksCol, tasks, updateTask]
   );
 
-  // Auto-save modal on outside click
+  // Auto-save modal
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (modalRef.current && !modalRef.current.contains(event.target as Node)) {
@@ -477,26 +462,41 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            {/* Files */}
+            {/* Links */}
             <div className="mt-6">
-              <h3 className="text-md font-semibold mb-2">Files</h3>
-              <input
-                type="file"
-                onChange={(e) => {
-                  const f = e.target.files?.[0];
-                  if (f) void uploadFile(f);
-                }}
-              />
+              <h3 className="text-md font-semibold mb-2">Links</h3>
+              <div className="flex gap-2 mb-3">
+                <input
+                  type="text"
+                  placeholder="Title"
+                  value={newLinkTitle}
+                  onChange={(e) => setNewLinkTitle(e.target.value)}
+                  className="flex-1 border border-gray-300 rounded px-2 py-1 text-sm"
+                />
+                <input
+                  type="url"
+                  placeholder="https://example.com"
+                  value={newLinkUrl}
+                  onChange={(e) => setNewLinkUrl(e.target.value)}
+                  className="flex-1 border border-gray-300 rounded px-2 py-1 text-sm"
+                />
+                <button
+                  onClick={addLink}
+                  className="bg-gray-800 text-white px-3 py-1 rounded text-sm"
+                >
+                  Add
+                </button>
+              </div>
               <ul className="mt-2 space-y-1 text-sm">
-                {files.map((f) => (
-                  <li key={f.id}>
+                {links.map((link) => (
+                  <li key={link.id}>
                     <a
-                      href={f.url}
+                      href={link.url}
                       target="_blank"
                       rel="noreferrer"
                       className="text-blue-600 underline"
                     >
-                      {f.name}
+                      {link.title}
                     </a>
                   </li>
                 ))}
