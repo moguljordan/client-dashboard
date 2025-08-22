@@ -23,13 +23,13 @@ import {
   DropResult,
 } from "@hello-pangea/dnd";
 
-type TaskStatus = "new" | "in-progress" | "review" | "done";
+type ProjectStatus = "new" | "in-progress" | "review" | "done";
 
-interface Task {
+interface Project {
   id: string;
   title: string;
   description: string;
-  status: TaskStatus;
+  status: ProjectStatus;
   dueDate?: string;
   position: number;
   createdAt?: Timestamp | null;
@@ -53,7 +53,7 @@ interface LinkItem {
   createdAt: Timestamp | null;
 }
 
-const PIPELINE: TaskStatus[] = ["new", "in-progress", "review", "done"];
+const PIPELINE: ProjectStatus[] = ["new", "in-progress", "review", "done"];
 
 function getDueDateClass(dueDate?: string) {
   if (!dueDate) return "text-gray-500";
@@ -70,11 +70,11 @@ function getDueDateClass(dueDate?: string) {
 
 export default function DashboardPage() {
   const { user } = useAuth();
-  const [tasks, setTasks] = useState<Task[]>([]);
+  const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [errMsg, setErrMsg] = useState<string | null>(null);
 
-  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const modalRef = useRef<HTMLDivElement>(null);
 
   // subcollections for modal
@@ -84,64 +84,55 @@ export default function DashboardPage() {
   const [newLinkTitle, setNewLinkTitle] = useState("");
   const [newLinkUrl, setNewLinkUrl] = useState("");
 
-  const selectedTask = useMemo(
-    () => tasks.find((t) => t.id === selectedTaskId) ?? null,
-    [tasks, selectedTaskId]
+  const selectedProject = useMemo(
+    () => projects.find((p) => p.id === selectedProjectId) ?? null,
+    [projects, selectedProjectId]
   );
   const [editTitle, setEditTitle] = useState("");
   const [editDesc, setEditDesc] = useState("");
 
   // Firestore refs
-  const projectRef = useMemo(() => {
+  const projectsCol = useMemo(() => {
     if (!user) return null;
-    return doc(db, "users", user.uid, "projects", "default");
+    return collection(db, "users", user.uid, "projects");
   }, [user]);
 
-  const tasksCol = useMemo(() => {
-    if (!projectRef) return null;
-    return collection(projectRef, "tasks");
-  }, [projectRef]);
-
-  // Load project + tasks
+  // Load projects
   useEffect(() => {
-    if (!user || !projectRef || !tasksCol) return;
+    if (!user || !projectsCol) return;
 
-    setDoc(projectRef, { title: "Design Board" }, { merge: true }).catch(
-      () => {}
-    );
-
-    const q = query(tasksCol, orderBy("position", "asc"));
+    const q = query(projectsCol, orderBy("position", "asc"));
     const unsub = onSnapshot(
       q,
       (snap) => {
-        const taskList: Task[] = [];
+        const list: Project[] = [];
         snap.forEach((docSnap) => {
-          const data = docSnap.data() as Omit<Task, "id">;
-          taskList.push({ id: docSnap.id, ...data });
+          const data = docSnap.data() as Omit<Project, "id">;
+          list.push({ id: docSnap.id, ...data });
         });
-        setTasks(taskList);
+        setProjects(list);
         setLoading(false);
       },
       (err) => {
         const message =
           err && typeof err === "object" && "message" in err
             ? String((err as { message?: string }).message)
-            : "Failed to load tasks";
+            : "Failed to load projects";
         setErrMsg(message);
         setLoading(false);
       }
     );
 
     return () => unsub();
-  }, [user, projectRef, tasksCol]);
+  }, [user, projectsCol]);
 
-  // Load comments + links when a task is selected
+  // Load comments + links when a project is selected
   useEffect(() => {
-    if (!selectedTaskId || !tasksCol) return;
+    if (!selectedProjectId || !projectsCol) return;
 
-    const taskRef = doc(tasksCol, selectedTaskId);
-    const commentsCol = collection(taskRef, "comments");
-    const linksCol = collection(taskRef, "links");
+    const projectRef = doc(projectsCol, selectedProjectId);
+    const commentsCol = collection(projectRef, "comments");
+    const linksCol = collection(projectRef, "links");
 
     const unsubComments = onSnapshot(
       query(commentsCol, orderBy("createdAt", "asc")),
@@ -171,29 +162,29 @@ export default function DashboardPage() {
       unsubComments();
       unsubLinks();
     };
-  }, [selectedTaskId, tasksCol]);
+  }, [selectedProjectId, projectsCol]);
 
-  // sync modal inputs when task changes
+  // sync modal inputs when project changes
   useEffect(() => {
-    if (selectedTask) {
-      setEditTitle(selectedTask.title ?? "");
-      setEditDesc(selectedTask.description ?? "");
+    if (selectedProject) {
+      setEditTitle(selectedProject.title ?? "");
+      setEditDesc(selectedProject.description ?? "");
     } else {
       setEditTitle("");
       setEditDesc("");
     }
-  }, [selectedTask]);
+  }, [selectedProject]);
 
   // CRUD helpers
-  const addTask = useCallback(
+  const addProject = useCallback(
     async (title: string) => {
-      if (!tasksCol || !user) return;
-      await addDoc(tasksCol, {
+      if (!projectsCol || !user) return;
+      await addDoc(projectsCol, {
         title,
         description: "",
-        status: "new" as TaskStatus,
+        status: "new" as ProjectStatus,
         dueDate: "",
-        position: tasks.filter((t) => t.status === "new").length,
+        position: projects.filter((p) => p.status === "new").length,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
         priority: "medium",
@@ -201,45 +192,45 @@ export default function DashboardPage() {
         assignedTo: user.uid,
       });
     },
-    [tasksCol, user, tasks]
+    [projectsCol, user, projects]
   );
 
-  const updateTask = useCallback(
-    async (taskId: string, updates: Partial<Task>) => {
-      if (!tasksCol) return;
-      const taskRef = doc(tasksCol, taskId);
-      await updateDoc(taskRef, { ...updates, updatedAt: serverTimestamp() });
+  const updateProject = useCallback(
+    async (projectId: string, updates: Partial<Project>) => {
+      if (!projectsCol) return;
+      const projectRef = doc(projectsCol, projectId);
+      await updateDoc(projectRef, { ...updates, updatedAt: serverTimestamp() });
     },
-    [tasksCol]
+    [projectsCol]
   );
 
-  const deleteTaskById = useCallback(
-    async (taskId: string) => {
-      if (!tasksCol) return;
-      const confirmed = confirm("Delete this task?");
+  const deleteProjectById = useCallback(
+    async (projectId: string) => {
+      if (!projectsCol) return;
+      const confirmed = confirm("Delete this project?");
       if (!confirmed) return;
-      await deleteDoc(doc(tasksCol, taskId));
-      setSelectedTaskId(null);
+      await deleteDoc(doc(projectsCol, projectId));
+      setSelectedProjectId(null);
     },
-    [tasksCol]
+    [projectsCol]
   );
 
   const addComment = useCallback(async () => {
-    if (!tasksCol || !selectedTaskId || !newComment.trim() || !user) return;
-    const taskRef = doc(tasksCol, selectedTaskId);
-    const commentsCol = collection(taskRef, "comments");
+    if (!projectsCol || !selectedProjectId || !newComment.trim() || !user) return;
+    const projectRef = doc(projectsCol, selectedProjectId);
+    const commentsCol = collection(projectRef, "comments");
     await addDoc(commentsCol, {
       text: newComment,
       author: user.displayName || user.email || "Unknown",
       createdAt: serverTimestamp(),
     });
     setNewComment("");
-  }, [tasksCol, selectedTaskId, newComment, user]);
+  }, [projectsCol, selectedProjectId, newComment, user]);
 
   const addLink = useCallback(async () => {
-    if (!tasksCol || !selectedTaskId || !newLinkUrl.trim()) return;
-    const taskRef = doc(tasksCol, selectedTaskId);
-    const linksCol = collection(taskRef, "links");
+    if (!projectsCol || !selectedProjectId || !newLinkUrl.trim()) return;
+    const projectRef = doc(projectsCol, selectedProjectId);
+    const linksCol = collection(projectRef, "links");
     await addDoc(linksCol, {
       title: newLinkTitle || newLinkUrl,
       url: newLinkUrl,
@@ -247,59 +238,59 @@ export default function DashboardPage() {
     });
     setNewLinkTitle("");
     setNewLinkUrl("");
-  }, [tasksCol, selectedTaskId, newLinkTitle, newLinkUrl]);
+  }, [projectsCol, selectedProjectId, newLinkTitle, newLinkUrl]);
 
   // Drag & Drop reorder
   const onDragEnd = useCallback(
     async (result: DropResult) => {
-      if (!tasksCol) return;
+      if (!projectsCol) return;
       const { destination, source } = result;
       if (!destination) return;
 
-      const sourceCol = source.droppableId as TaskStatus;
-      const destCol = destination.droppableId as TaskStatus;
+      const sourceCol = source.droppableId as ProjectStatus;
+      const destCol = destination.droppableId as ProjectStatus;
 
-      const tasksInSource = tasks
-        .filter((t) => t.status === sourceCol)
+      const projectsInSource = projects
+        .filter((p) => p.status === sourceCol)
         .sort((a, b) => a.position - b.position);
 
-      const tasksInDest = tasks
-        .filter((t) => t.status === destCol)
+      const projectsInDest = projects
+        .filter((p) => p.status === destCol)
         .sort((a, b) => a.position - b.position);
 
-      const [moved] = tasksInSource.splice(source.index, 1);
-      tasksInDest.splice(destination.index, 0, { ...moved, status: destCol });
+      const [moved] = projectsInSource.splice(source.index, 1);
+      projectsInDest.splice(destination.index, 0, { ...moved, status: destCol });
 
       await Promise.all([
-        ...tasksInSource.map((t, i) =>
-          updateTask(t.id, { position: i, status: sourceCol })
+        ...projectsInSource.map((p, i) =>
+          updateProject(p.id, { position: i, status: sourceCol })
         ),
-        ...tasksInDest.map((t, i) =>
-          updateTask(t.id, { position: i, status: destCol })
+        ...projectsInDest.map((p, i) =>
+          updateProject(p.id, { position: i, status: destCol })
         ),
       ]);
     },
-    [tasksCol, tasks, updateTask]
+    [projectsCol, projects, updateProject]
   );
 
   // Auto-save modal
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (modalRef.current && !modalRef.current.contains(event.target as Node)) {
-        if (selectedTask) {
-          void updateTask(selectedTask.id, {
+        if (selectedProject) {
+          void updateProject(selectedProject.id, {
             title: editTitle,
             description: editDesc,
           });
         }
-        setSelectedTaskId(null);
+        setSelectedProjectId(null);
       }
     }
-    if (selectedTask) {
+    if (selectedProject) {
       document.addEventListener("mousedown", handleClickOutside);
     }
     return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [selectedTask, editTitle, editDesc, updateTask]);
+  }, [selectedProject, editTitle, editDesc, updateProject]);
 
   if (loading) return <div>Loading...</div>;
   if (!user) return <div>Please log in</div>;
@@ -331,19 +322,19 @@ export default function DashboardPage() {
                         e.preventDefault();
                         const form = e.currentTarget;
                         const input = form.elements.namedItem(
-                          "taskTitle"
+                          "projectTitle"
                         ) as HTMLInputElement | null;
                         const val = (input?.value ?? "").trim();
                         if (val) {
-                          await addTask(val);
+                          await addProject(val);
                           if (input) input.value = "";
                         }
                       }}
                       className="flex gap-2 mb-3"
                     >
                       <input
-                        name="taskTitle"
-                        placeholder="Add task..."
+                        name="projectTitle"
+                        placeholder="Add project..."
                         className="flex-1 border border-gray-300 rounded px-2 py-1 text-sm"
                       />
                       <button
@@ -355,32 +346,37 @@ export default function DashboardPage() {
                     </form>
                   )}
 
-                  {tasks
-                    .filter((t) => t.status === status)
+                  {projects
+                    .filter((p) => p.status === status)
                     .sort((a, b) => a.position - b.position)
-                    .map((task, index) => (
-                      <Draggable draggableId={task.id} index={index} key={task.id}>
+                    .map((project, index) => (
+                      <Draggable
+                        draggableId={project.id}
+                        index={index}
+                        key={project.id}
+                      >
                         {(prov) => (
                           <div
                             ref={prov.innerRef}
                             {...prov.draggableProps}
                             {...prov.dragHandleProps}
-                            onClick={() => setSelectedTaskId(task.id)}
+                            onClick={() => setSelectedProjectId(project.id)}
                             className="p-3 mb-2 bg-gray-50 border border-gray-200 rounded cursor-pointer hover:bg-gray-100"
                           >
-                            <div className="font-medium">{task.title}</div>
-                            {task.description && (
+                            <div className="font-medium">{project.title}</div>
+                            {project.description && (
                               <div className="text-xs text-gray-500 mt-1 line-clamp-2">
-                                {task.description}
+                                {project.description}
                               </div>
                             )}
-                            {task.dueDate && (
+                            {project.dueDate && (
                               <div
                                 className={`text-xs mt-1 ${getDueDateClass(
-                                  task.dueDate
+                                  project.dueDate
                                 )}`}
                               >
-                                Due: {new Date(task.dueDate).toLocaleDateString()}
+                                Due:{" "}
+                                {new Date(project.dueDate).toLocaleDateString()}
                               </div>
                             )}
                           </div>
@@ -396,7 +392,7 @@ export default function DashboardPage() {
       </DragDropContext>
 
       {/* Modal */}
-      {selectedTask && (
+      {selectedProject && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
           <div
             ref={modalRef}
@@ -407,17 +403,17 @@ export default function DashboardPage() {
                 value={editTitle}
                 onChange={(e) => setEditTitle(e.target.value)}
                 className="flex-1 border border-gray-300 rounded px-3 py-2 font-semibold"
-                placeholder="Task title"
+                placeholder="Project title"
               />
               <div className="flex gap-2">
                 <button
-                  onClick={() => deleteTaskById(selectedTask.id)}
+                  onClick={() => deleteProjectById(selectedProject.id)}
                   className="px-3 py-2 rounded border border-red-500 text-red-600 hover:bg-red-50"
                 >
                   Delete
                 </button>
                 <button
-                  onClick={() => setSelectedTaskId(null)}
+                  onClick={() => setSelectedProjectId(null)}
                   className="px-3 py-2 rounded border border-gray-300 text-gray-600 hover:bg-gray-100"
                 >
                   Close
@@ -510,9 +506,9 @@ export default function DashboardPage() {
               </label>
               <input
                 type="date"
-                value={selectedTask.dueDate || ""}
+                value={selectedProject.dueDate || ""}
                 onChange={(e) =>
-                  void updateTask(selectedTask.id, { dueDate: e.target.value })
+                  void updateProject(selectedProject.id, { dueDate: e.target.value })
                 }
                 className="w-full border border-gray-300 rounded px-3 py-2 text-sm"
               />
