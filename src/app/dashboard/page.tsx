@@ -5,7 +5,6 @@ import { useAuth } from "@/contexts/AuthContext";
 import { db } from "@/lib/firebase";
 import {
   doc,
-  setDoc,
   collection,
   addDoc,
   updateDoc,
@@ -59,10 +58,8 @@ function getDueDateClass(dueDate?: string) {
   if (!dueDate) return "text-gray-500";
   const today = new Date();
   const due = new Date(dueDate);
-
   const isOverdue = due < new Date(today.toDateString());
   const isToday = due.toDateString() === today.toDateString();
-
   if (isOverdue) return "text-red-600 font-medium";
   if (isToday) return "text-orange-500 font-medium";
   return "text-gray-500";
@@ -70,40 +67,81 @@ function getDueDateClass(dueDate?: string) {
 
 export default function DashboardPage() {
   const { user } = useAuth();
+
+  // role/admin switching
+  const [role, setRole] = useState<string | null>(null);
+  const [allUsers, setAllUsers] = useState<{ id: string; email: string }[]>([]);
+  const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
+
+  // projects + ui
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [errMsg, setErrMsg] = useState<string | null>(null);
 
+  // modal state
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const modalRef = useRef<HTMLDivElement>(null);
 
-  // subcollections for modal
+  // modal subcollections
   const [comments, setComments] = useState<Comment[]>([]);
   const [links, setLinks] = useState<LinkItem[]>([]);
   const [newComment, setNewComment] = useState("");
   const [newLinkTitle, setNewLinkTitle] = useState("");
   const [newLinkUrl, setNewLinkUrl] = useState("");
+  const [editTitle, setEditTitle] = useState("");
+  const [editDesc, setEditDesc] = useState("");
 
   const selectedProject = useMemo(
     () => projects.find((p) => p.id === selectedProjectId) ?? null,
     [projects, selectedProjectId]
   );
-  const [editTitle, setEditTitle] = useState("");
-  const [editDesc, setEditDesc] = useState("");
 
-  // Firestore refs
-  const projectsCol = useMemo(() => {
-    if (!user) return null;
-    return collection(db, "users", user.uid, "projects");
+  // --- Role for current user ---
+  useEffect(() => {
+    if (!user) return;
+    const unsub = onSnapshot(doc(db, "users", user.uid), (snap) => {
+      const r = (snap.data() as any)?.role || "client";
+      setRole(r);
+    });
+    return () => unsub();
   }, [user]);
 
-  // Load projects
+  // --- Admin: load all users for switcher ---
   useEffect(() => {
-    if (!user || !projectsCol) return;
+    if (!user || role !== "admin") return;
+    const unsub = onSnapshot(collection(db, "users"), (snap) => {
+      const list = snap.docs.map((d) => ({
+        id: d.id,
+        email: (d.data() as any)?.email || d.id,
+      }));
+      setAllUsers(list);
+      // default select first user if none selected
+      if (!selectedUserId && list.length > 0) {
+        setSelectedUserId(list[0].id);
+      }
+    });
+    return () => unsub();
+  }, [user, role, selectedUserId]);
 
-    const q = query(projectsCol, orderBy("position", "asc"));
+  // --- Which UID are we viewing? (self for clients; selectable for admins) ---
+  const targetUid = useMemo(() => {
+    if (!user) return null;
+    return role === "admin" ? selectedUserId : user.uid;
+  }, [user, role, selectedUserId]);
+
+  // --- Firestore ref for projects under target user ---
+  const projectsCol = useMemo(() => {
+    if (!targetUid) return null;
+    return collection(db, "users", targetUid, "projects");
+  }, [targetUid]);
+
+  // --- Load projects for target user ---
+  useEffect(() => {
+    if (!projectsCol) return;
+    setLoading(true);
+    const qy = query(projectsCol, orderBy("position", "asc"));
     const unsub = onSnapshot(
-      q,
+      qy,
       (snap) => {
         const list: Project[] = [];
         snap.forEach((docSnap) => {
@@ -112,21 +150,17 @@ export default function DashboardPage() {
         });
         setProjects(list);
         setLoading(false);
+        setErrMsg(null);
       },
       (err) => {
-        const message =
-          err && typeof err === "object" && "message" in err
-            ? String((err as { message?: string }).message)
-            : "Failed to load projects";
-        setErrMsg(message);
+        setErrMsg(err?.message || "Failed to load projects");
         setLoading(false);
       }
     );
-
     return () => unsub();
-  }, [user, projectsCol]);
+  }, [projectsCol]);
 
-  // Load comments + links when a project is selected
+  // --- Load comments + links when a project is selected (for current targetUid) ---
   useEffect(() => {
     if (!selectedProjectId || !projectsCol) return;
 
@@ -164,7 +198,7 @@ export default function DashboardPage() {
     };
   }, [selectedProjectId, projectsCol]);
 
-  // sync modal inputs when project changes
+  // --- Sync modal inputs with selected project ---
   useEffect(() => {
     if (selectedProject) {
       setEditTitle(selectedProject.title ?? "");
@@ -175,10 +209,10 @@ export default function DashboardPage() {
     }
   }, [selectedProject]);
 
-  // CRUD helpers
+  // --- CRUD helpers ---
   const addProject = useCallback(
     async (title: string) => {
-      if (!projectsCol || !user) return;
+      if (!projectsCol || !user || !targetUid) return;
       await addDoc(projectsCol, {
         title,
         description: "",
@@ -189,10 +223,11 @@ export default function DashboardPage() {
         updatedAt: serverTimestamp(),
         priority: "medium",
         tags: [],
-        assignedTo: user.uid,
+        // IMPORTANT: assign to the viewed user, not necessarily the admin
+        assignedTo: targetUid,
       });
     },
-    [projectsCol, user, projects]
+    [projectsCol, user, targetUid, projects]
   );
 
   const updateProject = useCallback(
@@ -240,7 +275,7 @@ export default function DashboardPage() {
     setNewLinkUrl("");
   }, [projectsCol, selectedProjectId, newLinkTitle, newLinkUrl]);
 
-  // Drag & Drop reorder
+  // --- Drag & Drop reorder across columns ---
   const onDragEnd = useCallback(
     async (result: DropResult) => {
       if (!projectsCol) return;
@@ -273,7 +308,7 @@ export default function DashboardPage() {
     [projectsCol, projects, updateProject]
   );
 
-  // Auto-save modal
+  // --- Auto-save and close modal by outside click ---
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (modalRef.current && !modalRef.current.contains(event.target as Node)) {
@@ -292,15 +327,51 @@ export default function DashboardPage() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [selectedProject, editTitle, editDesc, updateProject]);
 
-  if (loading) return <div>Loading...</div>;
+  // --- Render guards ---
   if (!user) return <div>Please log in</div>;
+  if (loading) return <div>Loading...</div>;
+
+  // If admin but no user selected yet (e.g., still loading list)
+  if (role === "admin" && !targetUid) {
+    return (
+      <div className="p-6 bg-gray-50 min-h-screen text-gray-900">
+        <h1 className="text-2xl font-bold mb-4">
+          Hello, {user.displayName || user.email}
+        </h1>
+        <div className="mb-4">
+          <div className="text-gray-600">Select a client to view their board…</div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="p-6 bg-gray-50 min-h-screen text-gray-900">
-      <h1 className="text-2xl font-bold mb-4">
-        Hello, {user.displayName || user.email}
-      </h1>
-      {errMsg && <div className="text-red-600">{errMsg}</div>}
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4">
+        <h1 className="text-2xl font-bold">
+          Hello, {user.displayName || user.email}
+        </h1>
+
+        {/* Admin: client switcher */}
+        {role === "admin" && (
+          <div className="flex items-center gap-2">
+            <label className="font-semibold">Viewing client:</label>
+            <select
+              value={selectedUserId ?? ""}
+              onChange={(e) => setSelectedUserId(e.target.value)}
+              className="border border-gray-300 rounded px-2 py-1 bg-white"
+            >
+              {allUsers.map((u) => (
+                <option key={u.id} value={u.id}>
+                  {u.email}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+      </div>
+
+      {errMsg && <div className="text-red-600 mb-3">{errMsg}</div>}
 
       <DragDropContext onDragEnd={onDragEnd}>
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -375,8 +446,7 @@ export default function DashboardPage() {
                                   project.dueDate
                                 )}`}
                               >
-                                Due:{" "}
-                                {new Date(project.dueDate).toLocaleDateString()}
+                                Due: {new Date(project.dueDate).toLocaleDateString()}
                               </div>
                             )}
                           </div>
