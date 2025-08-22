@@ -6,8 +6,10 @@ import { AuthProvider } from '@/contexts/AuthContext'
 const inter = Inter({ subsets: ['latin'] })
 
 export const metadata: Metadata = {
-  title: 'Kanban Dashboard',
-  description: 'Client portal with Kanban board functionality',
+  title: 'Mogul Dashboard',
+  description: 'Client portal for Mogul DesignAgency',
+  icons: 
+    '/favicon.ico', // <-- make sure this file exists in /public
 }
 
 export default function RootLayout({
