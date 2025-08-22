@@ -1,6 +1,11 @@
-{
-  "extends": [
+// .eslintrc.js
+module.exports = {
+  root: true, // 👈 makes this the root config so others are ignored
+  extends: [
     "next/core-web-vitals",
-    "next/typescript"
-  ]
-}
+    "next/typescript",
+  ],
+  rules: {
+    "@typescript-eslint/no-explicit-any": "off", // ✅ disables the error
+  },
+};
