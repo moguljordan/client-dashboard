@@ -8,9 +8,15 @@ import {
   GoogleAuthProvider,
   signInWithPopup,
 } from "firebase/auth";
-import { auth } from "@/lib/firebase";
+import { auth, db } from "@/lib/firebase";
+import {
+  doc,
+  getDoc,
+  setDoc,
+  serverTimestamp,
+} from "firebase/firestore";
 
-// ✅ AuthContextType now includes role
+// ✅ AuthContextType includes role
 interface AuthContextType {
   user: User | null;
   role: string | null;
@@ -29,21 +35,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      setUser(user);
-      setLoading(false);
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      if (firebaseUser) {
+        setUser(firebaseUser);
 
-      if (user) {
-        // 🔹 TEMP: Simple role check based on email
-        // Later you can fetch roles from Firestore instead
-        if (user.email === "youremail@domain.com") {
-          setRole("admin");
-        } else {
+        // 🔹 Ensure Firestore user doc exists
+        const userRef = doc(db, "users", firebaseUser.uid);
+        const snap = await getDoc(userRef);
+
+        if (!snap.exists()) {
+          // Auto-create new user doc with default "client" role
+          await setDoc(userRef, {
+            email: firebaseUser.email,
+            role: "client",
+            createdAt: serverTimestamp(),
+          });
           setRole("client");
+        } else {
+          // Pull role from Firestore
+          setRole(snap.data().role || "client");
         }
       } else {
+        setUser(null);
         setRole(null);
       }
+
+      setLoading(false);
     });
 
     return unsubscribe;
@@ -53,6 +70,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const loginWithGoogle = async () => {
     const provider = new GoogleAuthProvider();
     await signInWithPopup(auth, provider);
+    // Firestore doc creation handled in onAuthStateChanged
   };
 
   // 🔹 Logout
@@ -60,7 +78,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await signOut(auth);
   };
 
-  const value = {
+  const value: AuthContextType = {
     user,
     role,
     loading,
