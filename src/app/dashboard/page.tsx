@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { db, storage } from "@/lib/firebase";
 import {
@@ -14,6 +14,7 @@ import {
   serverTimestamp,
   query,
   orderBy,
+  Timestamp,
 } from "firebase/firestore";
 import {
   ref as storageRef,
@@ -36,9 +37,8 @@ interface Task {
   status: TaskStatus;
   dueDate?: string;
   position: number;
-  createdAt?: any;
-  updatedAt?: any;
-  // ✅ Added fields (saved to Firestore, optional so old docs still work)
+  createdAt?: Timestamp | null;
+  updatedAt?: Timestamp | null;
   priority?: "low" | "medium" | "high";
   tags?: string[];
   assignedTo?: string;
@@ -47,20 +47,15 @@ interface Task {
 interface Comment {
   id: string;
   text: string;
-  createdAt: any;
+  createdAt: Timestamp | null;
   author: string;
 }
 
-interface File {
+interface StoredFile {
   id: string;
   url: string;
   name: string;
-  createdAt: any;
-}
-
-interface Project {
-  id: string;
-  title: string;
+  createdAt: Timestamp | null;
 }
 
 const PIPELINE: TaskStatus[] = ["new", "in-progress", "review", "done"];
@@ -80,7 +75,6 @@ function getDueDateClass(dueDate?: string) {
 
 export default function DashboardPage() {
   const { user } = useAuth();
-  const [project, setProject] = useState<Project | null>(null);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
   const [errMsg, setErrMsg] = useState<string | null>(null);
@@ -88,9 +82,9 @@ export default function DashboardPage() {
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const modalRef = useRef<HTMLDivElement>(null);
 
-  // 👇 subcollections for modal
+  // subcollections for modal
   const [comments, setComments] = useState<Comment[]>([]);
-  const [files, setFiles] = useState<File[]>([]);
+  const [files, setFiles] = useState<StoredFile[]>([]);
   const [newComment, setNewComment] = useState("");
 
   const selectedTask = useMemo(
@@ -100,7 +94,7 @@ export default function DashboardPage() {
   const [editTitle, setEditTitle] = useState("");
   const [editDesc, setEditDesc] = useState("");
 
-  // 🔥 references
+  // Firestore refs
   const projectRef = useMemo(() => {
     if (!user) return null;
     return doc(db, "users", user.uid, "projects", "default");
@@ -111,12 +105,14 @@ export default function DashboardPage() {
     return collection(projectRef, "tasks");
   }, [projectRef]);
 
-  // ✅ Load project doc + listen for tasks
+  // Load project + tasks
   useEffect(() => {
     if (!user || !projectRef || !tasksCol) return;
 
     // ensure project exists
-    setDoc(projectRef, { title: "Design Board" }, { merge: true });
+    setDoc(projectRef, { title: "Design Board" }, { merge: true }).catch(
+      () => {}
+    );
 
     const q = query(tasksCol, orderBy("position", "asc"));
     const unsub = onSnapshot(
@@ -128,12 +124,14 @@ export default function DashboardPage() {
           taskList.push({ id: docSnap.id, ...data });
         });
         setTasks(taskList);
-        setProject({ id: "default", title: "Design Board" });
         setLoading(false);
       },
       (err) => {
-        console.error(err);
-        setErrMsg(err.message || "Failed to load tasks");
+        const message =
+          err && typeof err === "object" && "message" in err
+            ? String((err as { message?: string }).message)
+            : "Failed to load tasks";
+        setErrMsg(message);
         setLoading(false);
       }
     );
@@ -141,7 +139,7 @@ export default function DashboardPage() {
     return () => unsub();
   }, [user, projectRef, tasksCol]);
 
-  // 👇 Load comments + files when a task is selected
+  // Load comments + files when a task is selected
   useEffect(() => {
     if (!selectedTaskId || !tasksCol) return;
 
@@ -153,9 +151,10 @@ export default function DashboardPage() {
       query(commentsCol, orderBy("createdAt", "asc")),
       (snap) => {
         const list: Comment[] = [];
-        snap.forEach((d) =>
-          list.push({ id: d.id, ...(d.data() as Omit<Comment, "id">) })
-        );
+        snap.forEach((d) => {
+          const data = d.data() as Omit<Comment, "id">;
+          list.push({ id: d.id, ...data });
+        });
         setComments(list);
       }
     );
@@ -163,10 +162,11 @@ export default function DashboardPage() {
     const unsubFiles = onSnapshot(
       query(filesCol, orderBy("createdAt", "desc")),
       (snap) => {
-        const list: File[] = [];
-        snap.forEach((d) =>
-          list.push({ id: d.id, ...(d.data() as Omit<File, "id">) })
-        );
+        const list: StoredFile[] = [];
+        snap.forEach((d) => {
+          const data = d.data() as Omit<StoredFile, "id">;
+          list.push({ id: d.id, ...data });
+        });
         setFiles(list);
       }
     );
@@ -177,7 +177,7 @@ export default function DashboardPage() {
     };
   }, [selectedTaskId, tasksCol]);
 
-  // sync modal edits
+  // sync modal inputs when task changes
   useEffect(() => {
     if (selectedTask) {
       setEditTitle(selectedTask.title ?? "");
@@ -188,103 +188,121 @@ export default function DashboardPage() {
     }
   }, [selectedTask]);
 
-  // CRUD
-  async function addTask(title: string) {
-    if (!tasksCol || !user) return;
-    await addDoc(tasksCol, {
-      title,
-      description: "",
-      status: "new",
-      dueDate: "",
-      position: tasks.filter((t) => t.status === "new").length,
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-      // ✅ new structured defaults
-      priority: "medium",
-      tags: [],
-      assignedTo: user.uid,
-    });
-  }
+  // CRUD helpers
+  const addTask = useCallback(
+    async (title: string) => {
+      if (!tasksCol || !user) return;
+      await addDoc(tasksCol, {
+        title,
+        description: "",
+        status: "new" as TaskStatus,
+        dueDate: "",
+        position: tasks.filter((t) => t.status === "new").length,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+        priority: "medium",
+        tags: [],
+        assignedTo: user.uid,
+      });
+    },
+    [tasksCol, user, tasks]
+  );
 
-  async function updateTask(taskId: string, updates: Partial<Task>) {
-    if (!tasksCol) return;
-    const taskRef = doc(tasksCol, taskId);
-    await updateDoc(taskRef, { ...updates, updatedAt: serverTimestamp() });
-  }
+  const updateTask = useCallback(
+    async (taskId: string, updates: Partial<Task>) => {
+      if (!tasksCol) return;
+      const taskRef = doc(tasksCol, taskId);
+      await updateDoc(taskRef, { ...updates, updatedAt: serverTimestamp() });
+    },
+    [tasksCol]
+  );
 
-  async function deleteTask(taskId: string) {
-    if (!tasksCol) return;
-    const confirmed = confirm("Delete this task?");
-    if (!confirmed) return;
-    await deleteDoc(doc(tasksCol, taskId));
-    setSelectedTaskId(null);
-  }
+  const deleteTaskById = useCallback(
+    async (taskId: string) => {
+      if (!tasksCol) return;
+      const confirmed = confirm("Delete this task?");
+      if (!confirmed) return;
+      await deleteDoc(doc(tasksCol, taskId));
+      setSelectedTaskId(null);
+    },
+    [tasksCol]
+  );
 
-  // Comments
-  async function addComment() {
+  const addComment = useCallback(async () => {
     if (!tasksCol || !selectedTaskId || !newComment.trim() || !user) return;
     const taskRef = doc(tasksCol, selectedTaskId);
     const commentsCol = collection(taskRef, "comments");
     await addDoc(commentsCol, {
       text: newComment,
-      author: user.displayName || user.email,
+      author: user.displayName || user.email || "Unknown",
       createdAt: serverTimestamp(),
     });
     setNewComment("");
-  }
+  }, [tasksCol, selectedTaskId, newComment, user]);
 
-  // Files
-  async function uploadFile(file: File) {
-    if (!tasksCol || !selectedTaskId || !file) return;
-    const taskRef = doc(tasksCol, selectedTaskId);
-    const filesCol = collection(taskRef, "files");
+  // Upload a browser file to Storage + record in Firestore
+  const uploadFile = useCallback(
+    async (file: globalThis.File) => {
+      if (!tasksCol || !selectedTaskId || !user) return;
+      const taskRef = doc(tasksCol, selectedTaskId);
+      const filesCol = collection(taskRef, "files");
 
-    const storagePath = `users/${user?.uid}/projects/default/tasks/${selectedTaskId}/${file.name}`;
-    const fileRef = storageRef(storage, storagePath);
-    await uploadBytes(fileRef, file);
-    const url = await getDownloadURL(fileRef);
+      const storagePath = `users/${user.uid}/projects/default/tasks/${selectedTaskId}/${file.name}`;
+      const fileRef = storageRef(storage, storagePath);
 
-    await addDoc(filesCol, {
-      url,
-      name: file.name,
-      createdAt: serverTimestamp(),
-    });
-  }
+      // globalThis.File extends Blob, so this is valid
+      await uploadBytes(fileRef, file);
+      const url = await getDownloadURL(fileRef);
+
+      await addDoc(filesCol, {
+        url,
+        name: file.name,
+        createdAt: serverTimestamp(),
+      });
+    },
+    [tasksCol, selectedTaskId, user]
+  );
 
   // Drag & Drop reorder
-  const onDragEnd = async (result: DropResult) => {
-    if (!tasksCol) return;
-    const { destination, source } = result;
-    if (!destination) return;
+  const onDragEnd = useCallback(
+    async (result: DropResult) => {
+      if (!tasksCol) return;
+      const { destination, source } = result;
+      if (!destination) return;
 
-    const sourceCol = source.droppableId as TaskStatus;
-    const destCol = destination.droppableId as TaskStatus;
+      const sourceCol = source.droppableId as TaskStatus;
+      const destCol = destination.droppableId as TaskStatus;
 
-    const tasksInSource = tasks
-      .filter((t) => t.status === sourceCol)
-      .sort((a, b) => a.position - b.position);
+      const tasksInSource = tasks
+        .filter((t) => t.status === sourceCol)
+        .sort((a, b) => a.position - b.position);
 
-    const tasksInDest = tasks
-      .filter((t) => t.status === destCol)
-      .sort((a, b) => a.position - b.position);
+      const tasksInDest = tasks
+        .filter((t) => t.status === destCol)
+        .sort((a, b) => a.position - b.position);
 
-    const [moved] = tasksInSource.splice(source.index, 1);
-    tasksInDest.splice(destination.index, 0, { ...moved, status: destCol });
+      const [moved] = tasksInSource.splice(source.index, 1);
+      tasksInDest.splice(destination.index, 0, { ...moved, status: destCol });
 
-    tasksInSource.forEach((t, i) =>
-      updateTask(t.id, { position: i, status: sourceCol })
-    );
-    tasksInDest.forEach((t, i) =>
-      updateTask(t.id, { position: i, status: destCol })
-    );
-  };
+      // persist new positions
+      await Promise.all([
+        ...tasksInSource.map((t, i) =>
+          updateTask(t.id, { position: i, status: sourceCol })
+        ),
+        ...tasksInDest.map((t, i) =>
+          updateTask(t.id, { position: i, status: destCol })
+        ),
+      ]);
+    },
+    [tasksCol, tasks, updateTask]
+  );
 
   // Auto-save modal on outside click
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (modalRef.current && !modalRef.current.contains(event.target as Node)) {
         if (selectedTask) {
-          updateTask(selectedTask.id, {
+          void updateTask(selectedTask.id, {
             title: editTitle,
             description: editDesc,
           });
@@ -296,7 +314,7 @@ export default function DashboardPage() {
       document.addEventListener("mousedown", handleClickOutside);
     }
     return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [selectedTask, editTitle, editDesc]);
+  }, [selectedTask, editTitle, editDesc, updateTask]);
 
   if (loading) return <div>Loading...</div>;
   if (!user) return <div>Please log in</div>;
@@ -321,18 +339,19 @@ export default function DashboardPage() {
                   <h3 className="capitalize mb-2 font-semibold">
                     {status.replace("-", " ")}
                   </h3>
+
                   {status === "new" && (
                     <form
                       onSubmit={async (e) => {
                         e.preventDefault();
-                        const input =
-                          e.currentTarget.elements.namedItem(
-                            "taskTitle"
-                          ) as HTMLInputElement;
-                        const val = input.value.trim();
+                        const form = e.currentTarget;
+                        const input = form.elements.namedItem(
+                          "taskTitle"
+                        ) as HTMLInputElement | null;
+                        const val = (input?.value ?? "").trim();
                         if (val) {
                           await addTask(val);
-                          input.value = "";
+                          if (input) input.value = "";
                         }
                       }}
                       className="flex gap-2 mb-3"
@@ -350,6 +369,7 @@ export default function DashboardPage() {
                       </button>
                     </form>
                   )}
+
                   {tasks
                     .filter((t) => t.status === status)
                     .sort((a, b) => a.position - b.position)
@@ -375,8 +395,7 @@ export default function DashboardPage() {
                                   task.dueDate
                                 )}`}
                               >
-                                Due:{" "}
-                                {new Date(task.dueDate).toLocaleDateString()}
+                                Due: {new Date(task.dueDate).toLocaleDateString()}
                               </div>
                             )}
                           </div>
@@ -407,7 +426,7 @@ export default function DashboardPage() {
               />
               <div className="flex gap-2">
                 <button
-                  onClick={() => deleteTask(selectedTask.id)}
+                  onClick={() => deleteTaskById(selectedTask.id)}
                   className="px-3 py-2 rounded border border-red-500 text-red-600 hover:bg-red-50"
                 >
                   Delete
@@ -464,7 +483,8 @@ export default function DashboardPage() {
               <input
                 type="file"
                 onChange={(e) => {
-                  if (e.target.files?.[0]) uploadFile(e.target.files[0]);
+                  const f = e.target.files?.[0];
+                  if (f) void uploadFile(f);
                 }}
               />
               <ul className="mt-2 space-y-1 text-sm">
@@ -492,7 +512,7 @@ export default function DashboardPage() {
                 type="date"
                 value={selectedTask.dueDate || ""}
                 onChange={(e) =>
-                  updateTask(selectedTask.id, { dueDate: e.target.value })
+                  void updateTask(selectedTask.id, { dueDate: e.target.value })
                 }
                 className="w-full border border-gray-300 rounded px-3 py-2 text-sm"
               />

@@ -1,7 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   turbopack: {
-    root: __dirname, // force build inside client-dashboard
+    root: __dirname,
   },
   outputFileTracingRoot: __dirname,
 };
