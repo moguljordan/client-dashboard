@@ -61,28 +61,30 @@ const COLUMN_TITLES: Record<ProjectStatus, string> = {
   done: "Done",
 };
 
+// Adjusted column colors for the new theme
 const COLUMN_COLORS: Record<ProjectStatus, string> = {
-  new: "bg-slate-50 border-slate-200",
-  "in-progress": "bg-slate-50 border-slate-200",
-  review: "bg-slate-50 border-slate-200",
-  done: "bg-emerald-50 border-emerald-200",
+  new: "bg-gray-50 border-gray-200",
+  "in-progress": "bg-gray-50 border-gray-200",
+  review: "bg-gray-50 border-gray-200",
+  done: "bg-emerald-50 border-emerald-200", // "Done" remains green
 };
 
 /** ------- helpers ------- */
 function getDueDateClass(dueDate?: string) {
-  if (!dueDate) return "text-slate-500";
+  if (!dueDate) return "text-gray-500";
   const today = new Date();
   const due = new Date(dueDate);
   const isOverdue = due < new Date(today.toDateString());
   const isToday = due.toDateString() === today.toDateString();
   if (isOverdue) return "text-red-500 font-medium";
   if (isToday) return "text-amber-500 font-medium";
-  return "text-slate-500";
+  return "text-gray-500";
 }
 
+// Replaced blue tag style with orange to match the new accent color
 const TAG_COLOR_CLASSES = [
   "bg-emerald-100 text-emerald-700 border-emerald-200",
-  "bg-blue-100 text-blue-700 border-blue-200",
+  "bg-orange-100 text-orange-700 border-orange-200", // Changed from blue
   "bg-violet-100 text-violet-700 border-violet-200",
   "bg-rose-100 text-rose-700 border-rose-200",
   "bg-amber-100 text-amber-700 border-amber-200",
@@ -419,13 +421,13 @@ export default function DashboardPage() {
   // --- Render guards ---
   if (!user)
     return (
-      <div className="flex items-center justify-center min-h-screen text-slate-600">
+      <div className="flex items-center justify-center min-h-screen text-gray-600">
         Please log in
       </div>
     );
   if (loading)
     return (
-      <div className="flex items-center justify-center min-h-screen text-slate-600">
+      <div className="flex items-center justify-center min-h-screen text-gray-600">
         Loading...
       </div>
     );
@@ -433,24 +435,24 @@ export default function DashboardPage() {
   // If admin but no user selected yet
   if (role === "admin" && !targetUid) {
     return (
-      <div className="p-8 bg-slate-50 min-h-screen">
+      <div className="p-8 bg-gray-50 min-h-screen">
         <div className="max-w-7xl mx-auto">
-          <h1 className="text-3xl font-light text-slate-900 mb-4">Dashboard</h1>
-          <p className="text-slate-600">Select a client to view their board…</p>
+          <h1 className="text-3xl font-light text-gray-900 mb-4">Dashboard</h1>
+          <p className="text-gray-600">Select a client to view their board…</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-gray-50 text-gray-800">
       {/* Header */}
-      <div className="bg-white border-b border-slate-200 sticky top-0 z-40">
+      <div className="bg-white border-b border-gray-200 sticky top-0 z-40">
         <div className="max-w-7xl mx-auto px-6 py-4">
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-sm font-light text-slate-900">Projects</h1>
-              <p className="text-2xl text-slate-600 mt-1">
+              <h1 className="text-sm font-light text-gray-900">Projects</h1>
+              <p className="text-2xl mt-1">
                 Welcome back,{" "}
                 {user.displayName?.split(" ")[0] || user.email?.split("@")[0]}
               </p>
@@ -459,13 +461,13 @@ export default function DashboardPage() {
             {/* Admin: client switcher */}
             {role === "admin" && (
               <div className="flex items-center gap-3">
-                <label className="text-sm font-medium text-slate-700">
+                <label className="text-sm font-medium text-gray-800">
                   Viewing:
                 </label>
                 <select
                   value={selectedUserId ?? ""}
                   onChange={(e) => setSelectedUserId(e.target.value)}
-                  className="bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  className="bg-white border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
                 >
                   {allUsers.map((u) => (
                     <option key={u.id} value={u.id}>
@@ -497,15 +499,15 @@ export default function DashboardPage() {
                     {...provided.droppableProps}
                     className={`rounded-xl border-2 p-4 min-h-[500px] transition-colors ${
                       snapshot.isDraggingOver
-                        ? "bg-slate-100 border-slate-300"
+                        ? "bg-gray-100 border-gray-300"
                         : COLUMN_COLORS[status]
                     }`}
                   >
                     <div className="flex items-center justify-between mb-4">
-                      <h3 className="font-medium text-slate-700 text-sm uppercase tracking-wide">
+                      <h3 className="font-medium text-gray-900 text-sm uppercase tracking-wide">
                         {COLUMN_TITLES[status]}
                       </h3>
-                      <div className="bg-slate-100 text-slate-600 text-xs font-medium px-2 py-1 rounded-full">
+                      <div className="bg-gray-200 text-gray-700 text-xs font-medium px-2 py-1 rounded-full">
                         {projects.filter((p) => p.status === status).length}
                       </div>
                     </div>
@@ -529,12 +531,12 @@ export default function DashboardPage() {
                         <div className="flex gap-2">
                           <input
                             name="projectTitle"
-                            placeholder="Add a new project..."
-                            className="flex-1 bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+                            placeholder="Add a new task..."
+                            className="flex-1 bg-white border border-gray-300 rounded-lg px-3 py-2 text-sm text-black placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-orange-500 transition-colors"
                           />
                           <button
                             type="submit"
-                            className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+                            className="bg-orange-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-orange-700 transition-colors focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-2"
                           >
                             Add
                           </button>
@@ -558,12 +560,12 @@ export default function DashboardPage() {
                                 {...prov.draggableProps}
                                 {...prov.dragHandleProps}
                                 onClick={() => setSelectedProjectId(project.id)}
-                                className={`group bg-white border border-slate-200 rounded-lg p-4 cursor-pointer transition-all hover:border-slate-300 hover:shadow-sm ${
+                                className={`group bg-white border border-gray-200 rounded-lg p-4 cursor-pointer transition-all hover:border-gray-300 hover:shadow-sm ${
                                   snapShot.isDragging ? "shadow-lg rotate-3" : ""
                                 }`}
                               >
                                 <div className="flex items-start justify-between mb-2">
-                                  <h4 className="font-medium text-slate-900 leading-snug">
+                                  <h4 className="font-medium text-gray-900 leading-snug">
                                     {project.title}
                                   </h4>
                                   {project.status !== "done" && (
@@ -583,7 +585,7 @@ export default function DashboardPage() {
                                 </div>
 
                                 {project.description && (
-                                  <p className="text-xs text-slate-600 mb-3 line-clamp-2 leading-relaxed">
+                                  <p className="text-xs text-gray-700 mb-3 line-clamp-2 leading-relaxed">
                                     {project.description}
                                   </p>
                                 )}
@@ -624,6 +626,20 @@ export default function DashboardPage() {
         </DragDropContext>
       </div>
 
+      {/* Footer */}
+      <footer className="bg-white border-t border-gray-200 py-6">
+        <div className="max-w-7xl mx-auto px-6">
+          <div className="flex items-center justify-between">
+            <p className="text-xs text-gray-500">
+              © 2025 Mogul Design Agency. All rights reserved.
+            </p>
+            <p className="text-xs text-gray-400">
+              Client Dashboard™
+            </p>
+          </div>
+        </div>
+      </footer>
+
       {/* Enhanced Modal */}
       {selectedProject && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
@@ -632,12 +648,12 @@ export default function DashboardPage() {
             className="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto"
           >
             {/* Modal Header */}
-            <div className="sticky top-0 bg-white border-b border-slate-200 px-6 py-4 rounded-t-xl">
+            <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 rounded-t-xl">
               <div className="flex items-center justify-between gap-3">
                 <input
                   value={editTitle}
                   onChange={(e) => setEditTitle(e.target.value)}
-                  className="flex-1 text-xl font-semibold text-slate-900 bg-transparent border border-transparent focus:border-slate-200 rounded-lg px-2 py-1 -mx-2"
+                  className="flex-1 text-xl font-semibold text-gray-900 bg-transparent border border-transparent focus:border-gray-300 rounded-lg px-2 py-1 -mx-2 focus:outline-none"
                   placeholder="Project title"
                 />
                 <div className="flex items-center gap-2">
@@ -659,7 +675,7 @@ export default function DashboardPage() {
                   </button>
                   <button
                     onClick={handleSaveAndClose}
-                    className="px-4 py-2 border border-slate-300 text-slate-700 text-sm font-medium rounded-lg hover:bg-slate-50 transition-colors"
+                    className="px-4 py-2 border border-gray-300 text-gray-800 text-sm font-medium rounded-lg hover:bg-gray-50 transition-colors"
                   >
                     Close
                   </button>
@@ -673,26 +689,26 @@ export default function DashboardPage() {
                 {/* Left column */}
                 <div className="space-y-6">
                   {/* Description */}
-                  <section className="border border-slate-200 rounded-lg p-4">
-                    <h3 className="text-sm font-medium text-slate-700 mb-2">
+                  <section className="border border-gray-200 rounded-lg p-4">
+                    <h3 className="text-sm font-medium text-gray-800 mb-2">
                       Description
                     </h3>
                     <textarea
                       value={editDesc}
                       onChange={(e) => setEditDesc(e.target.value)}
                       placeholder="Add a detailed description..."
-                      className="w-full min-h-[140px] bg-white border border-slate-200 rounded-lg px-4 py-3 text-sm text-slate-800 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-y"
+                      className="w-full min-h-[140px] bg-white border border-gray-300 rounded-lg px-4 py-3 text-sm text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-orange-500 resize-y"
                     />
                   </section>
 
                   {/* Comments */}
-                  <section className="border border-slate-200 rounded-lg p-4">
-                    <h3 className="text-sm font-medium text-slate-700 mb-3">
+                  <section className="border border-gray-200 rounded-lg p-4">
+                    <h3 className="text-sm font-medium text-gray-800 mb-3">
                       Comments
                     </h3>
-                    <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 mb-3 max-h-48 overflow-y-auto">
+                    <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 mb-3 max-h-48 overflow-y-auto">
                       {comments.length === 0 ? (
-                        <p className="text-sm text-slate-500 italic">
+                        <p className="text-sm text-gray-500 italic">
                           No comments yet
                         </p>
                       ) : (
@@ -700,17 +716,17 @@ export default function DashboardPage() {
                           {comments.map((c) => (
                             <div
                               key={c.id}
-                              className="border-b border-slate-200 pb-2 last:border-b-0"
+                              className="border-b border-gray-200 pb-2 last:border-b-0"
                             >
                               <div className="flex items-center gap-2 mb-1">
-                                <span className="text-sm font-medium text-slate-700">
+                                <span className="text-sm font-medium text-gray-800">
                                   {c.author}
                                 </span>
-                                <span className="text-xs text-slate-500">
+                                <span className="text-xs text-gray-500">
                                   {c.createdAt?.toDate().toLocaleString()}
                                 </span>
                               </div>
-                              <p className="text-sm text-slate-600">{c.text}</p>
+                              <p className="text-sm text-gray-700">{c.text}</p>
                             </div>
                           ))}
                         </div>
@@ -721,11 +737,11 @@ export default function DashboardPage() {
                         value={newComment}
                         onChange={(e) => setNewComment(e.target.value)}
                         placeholder="Write a comment..."
-                        className="flex-1 bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-800 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        className="flex-1 bg-white border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
                       />
                       <button
                         onClick={addComment}
-                        className="px-4 py-2 bg-slate-800 text-white text-sm font-medium rounded-lg hover:bg-slate-900 transition-colors"
+                        className="px-4 py-2 bg-orange-600 text-white text-sm font-medium rounded-lg hover:bg-orange-700 transition-colors"
                       >
                         Post
                       </button>
@@ -736,13 +752,13 @@ export default function DashboardPage() {
                 {/* Right column */}
                 <div className="space-y-6">
                   {/* Details */}
-                  <section className="border border-slate-200 rounded-lg p-4">
-                    <h3 className="text-sm font-medium text-slate-700 mb-3">
+                  <section className="border border-gray-200 rounded-lg p-4">
+                    <h3 className="text-sm font-medium text-gray-800 mb-3">
                       Details
                     </h3>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div className="flex flex-col gap-1">
-                        <label className="text-xs font-medium text-slate-600">Due Date</label>
+                        <label className="text-xs font-medium text-gray-600">Due Date</label>
                         <input
                           type="date"
                           value={selectedProject.dueDate || ""}
@@ -751,11 +767,11 @@ export default function DashboardPage() {
                               dueDate: e.target.value,
                             })
                           }
-                          className="bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                          className="bg-white border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
                         />
                       </div>
                       <div className="flex flex-col gap-1">
-                        <label className="text-xs font-medium text-slate-600">Status</label>
+                        <label className="text-xs font-medium text-gray-600">Status</label>
                         <select
                           value={selectedProject.status}
                           onChange={(e) =>
@@ -763,7 +779,7 @@ export default function DashboardPage() {
                               status: e.target.value as ProjectStatus,
                             })
                           }
-                          className="bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                          className="bg-white border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
                         >
                           {PIPELINE.map((s) => (
                             <option key={s} value={s}>
@@ -776,8 +792,8 @@ export default function DashboardPage() {
                   </section>
 
                   {/* Labels */}
-                  <section className="border border-slate-200 rounded-lg p-4">
-                    <h3 className="text-sm font-medium text-slate-700 mb-3">
+                  <section className="border border-gray-200 rounded-lg p-4">
+                    <h3 className="text-sm font-medium text-gray-800 mb-3">
                       Labels
                     </h3>
                     <div className="flex flex-wrap gap-2 mb-3">
@@ -807,83 +823,64 @@ export default function DashboardPage() {
                               void addTagToProject();
                             }
                           }}
-                          className="flex-1 bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-800 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                          className="flex-1 bg-white border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
                         />
-                        <button
-                          onClick={addTagToProject}
-                          className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors flex-shrink-0"
-                        >
-                          Add
-                        </button>
+                         <button
+                            onClick={addTagToProject}
+                            className="px-4 py-2 bg-orange-600 text-white text-sm font-medium rounded-lg hover:bg-orange-700 transition-colors"
+                          >
+                            Add
+                         </button>
                       </div>
-                      <p className="text-xs text-slate-500">
-                        Tip: label colors are assigned automatically by name.
-                      </p>
                     </div>
                   </section>
 
                   {/* Links */}
-                  <section className="border border-slate-200 rounded-lg p-4">
-                    <h3 className="text-sm font-medium text-slate-700 mb-3">
+                  <section className="border border-gray-200 rounded-lg p-4">
+                    <h3 className="text-sm font-medium text-gray-800 mb-3">
                       Links
                     </h3>
-                    <div className="space-y-3 mb-4">
-                      <div className="flex flex-col gap-2">
-                        <input
-                          type="text"
-                          placeholder="Link title"
-                          value={newLinkTitle}
-                          onChange={(e) => setNewLinkTitle(e.target.value)}
-                          className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-800 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                        />
-                        <div className="flex gap-2">
-                          <input
-                            type="url"
-                            placeholder="https://example.com"
-                            value={newLinkUrl}
-                            onChange={(e) => setNewLinkUrl(e.target.value)}
-                            className="flex-1 bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-800 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                          />
-                          <button
-                            onClick={addLink}
-                            className="px-4 py-2 bg-slate-800 text-white text-sm font-medium rounded-lg hover:bg-slate-900 transition-colors flex-shrink-0"
-                          >
-                            Add
-                          </button>
+                    <div className="space-y-3 mb-3 max-h-40 overflow-y-auto">
+                      {links.length === 0 ? (
+                         <p className="text-sm text-gray-500 italic">
+                          No links yet
+                        </p>
+                      ) : links.map((link) => (
+                        <div key={link.id} className="flex items-center justify-between gap-2">
+                          <a href={link.url} target="_blank" rel="noopener noreferrer" className="text-sm text-orange-600 hover:underline truncate" title={link.url}>
+                            {link.title}
+                          </a>
+                           <button onClick={() => deleteLinkById(link.id)} className="text-gray-400 hover:text-red-500 text-xs">
+                             Delete
+                           </button>
                         </div>
-                      </div>
+                      ))}
                     </div>
-                    {links.length > 0 && (
-                      <div className="bg-slate-50 border border-slate-200 rounded-lg p-3">
-                        <ul className="space-y-2">
-                          {links.map((link) => (
-                            <li
-                              key={link.id}
-                              className="flex items-center justify-between gap-3"
-                            >
-                              <a
-                                href={link.url}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="text-blue-600 hover:text-blue-800 text-sm font-medium hover:underline transition-colors truncate flex-1"
-                              >
-                                {link.title}
-                              </a>
-                              <button
-                                onClick={() => deleteLinkById(link.id)}
-                                className="text-red-500 hover:text-red-700 text-xs font-medium transition-colors flex-shrink-0"
-                              >
-                                Delete
-                              </button>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
+                    <div className="flex flex-col gap-2">
+                       <input
+                        type="text"
+                        placeholder="Link URL"
+                        value={newLinkUrl}
+                        onChange={(e) => setNewLinkUrl(e.target.value)}
+                         className="bg-white border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+                      />
+                       <input
+                        type="text"
+                        placeholder="Title (optional)"
+                        value={newLinkTitle}
+                        onChange={(e) => setNewLinkTitle(e.target.value)}
+                        className="bg-white border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+                      />
+                      <button onClick={addLink} className="w-full mt-1 px-4 py-2 bg-gray-800 text-white text-sm font-medium rounded-lg hover:bg-black transition-colors">
+                        Add Link
+                      </button>
+                    </div>
                   </section>
                 </div>
+
               </div>
             </div>
+
           </div>
         </div>
       )}
