@@ -451,9 +451,9 @@ export default function DashboardPage() {
         <div className="max-w-7xl mx-auto px-6 py-4">
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-sm font-light text-gray-900">Projects</h1>
+              <h1 className="text-sm font-light text-gray-900">Dashboard</h1>
               <p className="text-2xl mt-1">
-                Welcome back,{" "}
+                Welcome,{" "}
                 {user.displayName?.split(" ")[0] || user.email?.split("@")[0]}
               </p>
             </div>
