@@ -22,7 +22,7 @@ import {
   DropResult,
 } from "@hello-pangea/dnd";
 
-// ✅ NEW: import the NotificationBell you already created
+// ✅ Notifications
 import NotificationBell from "@/components/NotificationBell";
 
 type ProjectStatus = "new" | "in-progress" | "review" | "done";
@@ -64,15 +64,19 @@ const COLUMN_TITLES: Record<ProjectStatus, string> = {
   done: "Done",
 };
 
-// Adjusted column colors for the new theme
+// Column colors
 const COLUMN_COLORS: Record<ProjectStatus, string> = {
   new: "bg-gray-50 border-gray-200",
   "in-progress": "bg-gray-50 border-gray-200",
   review: "bg-gray-50 border-gray-200",
-  done: "bg-emerald-50 border-emerald-200", // "Done" remains green
+  done: "bg-emerald-50 border-emerald-200",
 };
 
-/** ------- helpers ------- */
+// 🔶 One place to control the focus look
+const FOCUS_ORANGE =
+  "focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-orange-500";
+
+// Helpers
 function getDueDateClass(dueDate?: string) {
   if (!dueDate) return "text-gray-500";
   const today = new Date();
@@ -84,7 +88,6 @@ function getDueDateClass(dueDate?: string) {
   return "text-gray-500";
 }
 
-// Replaced blue tag style with orange to match the new accent color
 const TAG_COLOR_CLASSES = [
   "bg-emerald-100 text-emerald-700 border-emerald-200",
   "bg-orange-100 text-orange-700 border-orange-200",
@@ -137,7 +140,7 @@ export default function DashboardPage() {
     [projects, selectedProjectId]
   );
 
-  // --- Role for current user ---
+  // Role for current user
   useEffect(() => {
     if (!user) return;
     const unsub = onSnapshot(doc(db, "users", user.uid), (snap) => {
@@ -147,7 +150,7 @@ export default function DashboardPage() {
     return () => unsub();
   }, [user]);
 
-  // --- Admin: load all users for switcher ---
+  // Admin: load all users
   useEffect(() => {
     if (!user || role !== "admin") return;
     const unsub = onSnapshot(collection(db, "users"), (snap) => {
@@ -161,19 +164,19 @@ export default function DashboardPage() {
     return () => unsub();
   }, [user, role, selectedUserId]);
 
-  // --- Which UID are we viewing? ---
+  // Which UID are we viewing?
   const targetUid = useMemo(() => {
     if (!user) return null;
     return role === "admin" ? selectedUserId : user.uid;
   }, [user, role, selectedUserId]);
 
-  // --- Firestore ref for projects under target user ---
+  // Firestore ref for projects under target user
   const projectsCol = useMemo(() => {
     if (!targetUid) return null;
     return collection(db, "users", targetUid, "projects");
   }, [targetUid]);
 
-  // --- Load projects for target user ---
+  // Load projects
   useEffect(() => {
     if (!projectsCol) return;
     setLoading(true);
@@ -198,7 +201,7 @@ export default function DashboardPage() {
     return () => unsub();
   }, [projectsCol]);
 
-  // --- Load comments + links when a project is selected ---
+  // Load comments + links when a project is selected
   useEffect(() => {
     if (!selectedProjectId || !projectsCol) return;
 
@@ -236,7 +239,7 @@ export default function DashboardPage() {
     };
   }, [selectedProjectId, projectsCol]);
 
-  // --- Sync modal inputs with selected project ---
+  // Sync modal inputs
   useEffect(() => {
     if (selectedProject) {
       setEditTitle(selectedProject.title ?? "");
@@ -247,7 +250,7 @@ export default function DashboardPage() {
     }
   }, [selectedProject]);
 
-  // --- CRUD helpers ---
+  // CRUD helpers
   const addProject = useCallback(
     async (title: string) => {
       if (!projectsCol || !user || !targetUid) return;
@@ -296,7 +299,6 @@ export default function DashboardPage() {
       author: user.displayName || user.email || "Unknown",
       createdAt: serverTimestamp(),
     });
-    // ✅ NEW: create a notification for the project owner
     try {
       const ownerUid = selectedProject?.assignedTo || targetUid!;
       await addDoc(collection(db, "users", ownerUid, "notifications"), {
@@ -320,7 +322,6 @@ export default function DashboardPage() {
       url: newLinkUrl,
       createdAt: serverTimestamp(),
     });
-    // ✅ NEW: notify owner about new link
     try {
       const ownerUid = selectedProject?.assignedTo || targetUid!;
       await addDoc(collection(db, "users", ownerUid, "notifications"), {
@@ -370,7 +371,7 @@ export default function DashboardPage() {
     [selectedProject, updateProject]
   );
 
-  // --- Drag & Drop reorder across columns ---
+  // Drag & Drop
   const onDragEnd = useCallback(
     async (result: DropResult) => {
       if (!projectsCol) return;
@@ -403,7 +404,7 @@ export default function DashboardPage() {
     [projectsCol, projects, updateProject]
   );
 
-  // --- Modal: autosave on outside click + ESC to close ---
+  // Modal: autosave on outside click + ESC
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (modalRef.current && !modalRef.current.contains(event.target as Node)) {
@@ -418,12 +419,10 @@ export default function DashboardPage() {
     }
     function handleEsc(e: KeyboardEvent) {
       if (e.key === "Escape" && selectedProject) {
-        if (selectedProject) {
-          void updateProject(selectedProject.id, {
-            title: editTitle,
-            description: editDesc,
-          });
-        }
+        void updateProject(selectedProject.id, {
+          title: editTitle,
+          description: editDesc,
+        });
         setSelectedProjectId(null);
       }
     }
@@ -446,7 +445,7 @@ export default function DashboardPage() {
     setSelectedProjectId(null);
   }, [selectedProject, editTitle, editDesc, updateProject]);
 
-  // --- Render guards ---
+  // Guards
   if (!user)
     return (
       <div className="flex items-center justify-center min-h-screen text-gray-600">
@@ -460,7 +459,6 @@ export default function DashboardPage() {
       </div>
     );
 
-  // If admin but no user selected yet
   if (role === "admin" && !targetUid) {
     return (
       <div className="p-8 bg-gray-50 min-h-screen">
@@ -496,7 +494,7 @@ export default function DashboardPage() {
                   <select
                     value={selectedUserId ?? ""}
                     onChange={(e) => setSelectedUserId(e.target.value)}
-                    className="bg-white border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-200 focus:border-orange-100"
+                    className={`bg-white border border-gray-300 rounded-lg px-3 py-2 text-sm ${FOCUS_ORANGE}`}
                   >
                     {allUsers.map((u) => (
                       <option key={u.id} value={u.id}>
@@ -506,7 +504,6 @@ export default function DashboardPage() {
                   </select>
                 </>
               )}
-              {/* ✅ NEW: Notifications bell */}
               <NotificationBell />
             </div>
           </div>
@@ -564,11 +561,11 @@ export default function DashboardPage() {
                           <input
                             name="projectTitle"
                             placeholder="Add a new task..."
-                            className="flex-1 bg-white border border-gray-300 rounded-lg px-3 py-2 text-sm text-black placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-orange-100 focus:border-orange-200 transition-colors"
+                            className={`flex-1 bg-white border border-gray-300 rounded-lg px-3 py-2 text-sm text-black placeholder-gray-500 transition-colors ${FOCUS_ORANGE}`}
                           />
                           <button
                             type="submit"
-                            className="bg-orange-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-orange-700 transition-colors focus:outline-none focus:ring-2 focus:ring-orange-100 focus:ring-offset-2"
+                            className={`bg-orange-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-orange-700 transition-colors focus:ring-2 focus:ring-orange-500 focus:ring-offset-2 focus:outline-none`}
                           >
                             Add
                           </button>
@@ -605,9 +602,7 @@ export default function DashboardPage() {
                                       title="Mark as done"
                                       onClick={async (e) => {
                                         e.stopPropagation();
-                                        // change status
                                         await updateProject(project.id, { status: "done" });
-                                        // ✅ NEW: notify owner
                                         try {
                                           const ownerUid = project.assignedTo || targetUid!;
                                           await addDoc(
@@ -642,10 +637,7 @@ export default function DashboardPage() {
                                       project.dueDate
                                     )}`}
                                   >
-                                    Due{" "}
-                                    {new Date(
-                                      project.dueDate
-                                    ).toLocaleDateString()}
+                                    Due {new Date(project.dueDate).toLocaleDateString()}
                                   </div>
                                 )}
 
@@ -684,7 +676,7 @@ export default function DashboardPage() {
         </div>
       </footer>
 
-      {/* Enhanced Modal */}
+      {/* Modal */}
       {selectedProject && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div
@@ -697,7 +689,7 @@ export default function DashboardPage() {
                 <input
                   value={editTitle}
                   onChange={(e) => setEditTitle(e.target.value)}
-                  className="flex-1 text-xl font-semibold text-gray-900 bg-transparent border border-transparent focus:border-gray-300 rounded-lg px-2 py-1 -mx-2 focus:outline-none"
+                  className={`flex-1 text-xl font-semibold text-gray-900 bg-transparent border border-transparent rounded-lg px-2 py-1 -mx-2 ${FOCUS_ORANGE}`}
                   placeholder="Project title"
                 />
                 <div className="flex items-center gap-2">
@@ -705,7 +697,6 @@ export default function DashboardPage() {
                     <button
                       onClick={async () => {
                         await updateProject(selectedProject.id, { status: "done" });
-                        // ✅ NEW: notify owner
                         try {
                           const ownerUid = selectedProject.assignedTo || targetUid!;
                           await addDoc(collection(db, "users", ownerUid, "notifications"), {
@@ -718,20 +709,20 @@ export default function DashboardPage() {
                           });
                         } catch {}
                       }}
-                      className="px-4 py-2 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700 transition-colors"
+                      className="px-4 py-2 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700 transition-colors focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-2"
                     >
                       Mark Done
                     </button>
                   )}
                   <button
                     onClick={() => deleteProjectById(selectedProject.id)}
-                    className="px-4 py-2 border border-red-300 text-red-600 text-sm font-medium rounded-lg hover:bg-red-50 transition-colors"
+                    className="px-4 py-2 border border-red-300 text-red-600 text-sm font-medium rounded-lg hover:bg-red-50 transition-colors focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-2"
                   >
                     Delete
                   </button>
                   <button
                     onClick={handleSaveAndClose}
-                    className="px-4 py-2 border border-gray-300 text-gray-800 text-sm font-medium rounded-lg hover:bg-gray-50 transition-colors"
+                    className="px-4 py-2 border border-gray-300 text-gray-800 text-sm font-medium rounded-lg hover:bg-gray-50 transition-colors focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-2"
                   >
                     Close
                   </button>
@@ -753,7 +744,7 @@ export default function DashboardPage() {
                       value={editDesc}
                       onChange={(e) => setEditDesc(e.target.value)}
                       placeholder="Add a detailed description..."
-                      className="w-full min-h-[140px] bg-white border border-gray-300 rounded-lg px-4 py-3 text-sm text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-orange-100 focus:border-orange-200 resize-y"
+                      className={`w-full min-h-[140px] bg-white border border-gray-300 rounded-lg px-4 py-3 text-sm text-gray-900 placeholder-gray-500 resize-y ${FOCUS_ORANGE}`}
                     />
                   </section>
 
@@ -793,11 +784,11 @@ export default function DashboardPage() {
                         value={newComment}
                         onChange={(e) => setNewComment(e.target.value)}
                         placeholder="Write a comment..."
-                        className="flex-1 bg-white border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+                        className={`flex-1 bg-white border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 placeholder-gray-500 ${FOCUS_ORANGE}`}
                       />
                       <button
                         onClick={addComment}
-                        className="px-4 py-2 bg-orange-200 text-white text-sm font-medium rounded-lg hover:bg-orange-300 transition-colors"
+                        className="px-4 py-2 bg-orange-600 text-white text-sm font-medium rounded-lg hover:bg-orange-700 transition-colors focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-2"
                       >
                         Post
                       </button>
@@ -823,7 +814,7 @@ export default function DashboardPage() {
                               dueDate: e.target.value,
                             })
                           }
-                          className="bg-white border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+                          className={`bg-white border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 ${FOCUS_ORANGE}`}
                         />
                       </div>
                       <div className="flex flex-col gap-1">
@@ -833,7 +824,6 @@ export default function DashboardPage() {
                           onChange={async (e) => {
                             const next = e.target.value as ProjectStatus;
                             await updateProject(selectedProject.id, { status: next });
-                            // ✅ NEW: notify owner on status change
                             try {
                               const ownerUid = selectedProject.assignedTo || targetUid!;
                               await addDoc(collection(db, "users", ownerUid, "notifications"), {
@@ -846,7 +836,7 @@ export default function DashboardPage() {
                               });
                             } catch {}
                           }}
-                          className="bg-white border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-orange-200"
+                          className={`bg-white border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 ${FOCUS_ORANGE}`}
                         >
                           {PIPELINE.map((s) => (
                             <option key={s} value={s}>
@@ -890,14 +880,14 @@ export default function DashboardPage() {
                               void addTagToProject();
                             }
                           }}
-                          className="flex-1 bg-white border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-orange-100 focus:border-orange-200"
+                          className={`flex-1 bg-white border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 placeholder-gray-500 ${FOCUS_ORANGE}`}
                         />
-                         <button
-                            onClick={addTagToProject}
-                            className="px-4 py-2 bg-orange-200 text-white text-sm font-medium rounded-lg hover:bg-orange-300 transition-colors"
-                          >
-                            Add
-                         </button>
+                        <button
+                          onClick={addTagToProject}
+                          className="px-4 py-2 bg-orange-600 text-white text-sm font-medium rounded-lg hover:bg-orange-700 transition-colors focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-2"
+                        >
+                          Add
+                        </button>
                       </div>
                     </div>
                   </section>
@@ -909,45 +899,55 @@ export default function DashboardPage() {
                     </h3>
                     <div className="space-y-3 mb-3 max-h-40 overflow-y-auto">
                       {links.length === 0 ? (
-                         <p className="text-sm text-gray-500 italic">
-                          No links yet
-                        </p>
-                      ) : links.map((link) => (
-                        <div key={link.id} className="flex items-center justify-between gap-2">
-                          <a href={link.url} target="_blank" rel="noopener noreferrer" className="text-sm text-orange-600 hover:underline truncate" title={link.url}>
-                            {link.title}
-                          </a>
-                           <button onClick={() => deleteLinkById(link.id)} className="text-gray-400 hover:text-red-500 text-xs">
-                             Delete
-                           </button>
-                        </div>
-                      ))}
+                        <p className="text-sm text-gray-500 italic">No links yet</p>
+                      ) : (
+                        links.map((link) => (
+                          <div key={link.id} className="flex items-center justify-between gap-2">
+                            <a
+                              href={link.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-sm text-orange-600 hover:underline truncate"
+                              title={link.url}
+                            >
+                              {link.title}
+                            </a>
+                            <button
+                              onClick={() => deleteLinkById(link.id)}
+                              className="text-gray-400 hover:text-red-500 text-xs focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-2 rounded"
+                            >
+                              Delete
+                            </button>
+                          </div>
+                        ))
+                      )}
                     </div>
                     <div className="flex flex-col gap-2">
-                       <input
+                      <input
                         type="text"
                         placeholder="Link URL"
                         value={newLinkUrl}
                         onChange={(e) => setNewLinkUrl(e.target.value)}
-                         className="bg-white border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+                        className={`bg-white border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 placeholder-gray-500 ${FOCUS_ORANGE}`}
                       />
-                       <input
+                      <input
                         type="text"
                         placeholder="Title (optional)"
                         value={newLinkTitle}
                         onChange={(e) => setNewLinkTitle(e.target.value)}
-                        className="bg-white border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+                        className={`bg-white border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 placeholder-gray-500 ${FOCUS_ORANGE}`}
                       />
-                      <button onClick={addLink} className="w-full mt-1 px-4 py-2 bg-gray-800 text-white text-sm font-medium rounded-lg hover:bg-black transition-colors">
+                      <button
+                        onClick={addLink}
+                        className="w-full mt-1 px-4 py-2 bg-gray-800 text-white text-sm font-medium rounded-lg hover:bg-black transition-colors focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-2"
+                      >
                         Add Link
                       </button>
                     </div>
                   </section>
                 </div>
-
               </div>
             </div>
-
           </div>
         </div>
       )}
