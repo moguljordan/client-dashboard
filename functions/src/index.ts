@@ -1,44 +1,70 @@
-/**
- * Import function triggers from their respective submodules:
- *
- * import {onCall} from "firebase-functions/v2/https";
- * import {onDocumentWritten} from "firebase-functions/v2/firestore";
- *
- * See a full list of supported triggers at https://firebase.google.com/docs/functions
- */
 
 
-import * as functions from "firebase-functions";
+
+import { onRequest } from "firebase-functions/v2/https";
+import { onDocumentCreated, onDocumentUpdated } from "firebase-functions/v2/firestore";
+import { defineSecret } from "firebase-functions/params";
 import * as admin from "firebase-admin";
+import sgMail from "@sendgrid/mail";
 
 admin.initializeApp();
 const db = admin.firestore();
 
+// 🔐 Secrets
+const SENDGRID_API_KEY = defineSecret("SENDGRID_API_KEY"); // already set via `firebase functions:secrets:set SENDGRID_API_KEY`
+const NOTIFY_TO = defineSecret("NOTIFY_TO");               // optional: admin/team inbox (comma-separated)
+
+// ⚙️ Single Sender you verified in SendGrid (Option A)
+const VERIFIED_FROM = "your_verified_sender@example.com"; // <-- change to your verified Single Sender
+
 type ProjectStatus = "new" | "in-progress" | "review" | "done";
 const VALID_STATUS: ProjectStatus[] = ["new", "in-progress", "review", "done"];
 
-/**
- * POST body shape:
- * {
- *   "name": "Client Name",
- *   "email": "client@example.com",
- *   "projects": [
- *     {
- *       "title": "Website Redesign",
- *       "description": "Optional",
- *       "status": "new|in-progress|review|done",
- *       "dueDate": "YYYY-MM-DD",
- *       "priority": "low|medium|high",
- *       "tags": ["tag1","tag2"],
- *       "tasks": [{ "title": "Task A", "status": "new" }, ...],
- *       "comments": [{ "text": "...", "author": "..." }, ...],
- *       "links": [{ "url": "https://...", "label": "Doc" }, ...]
- *     }
- *   ]
- * }
- */
+// -----------------------------
+// Email helpers
+// -----------------------------
+function setApiKey() {
+  const key = SENDGRID_API_KEY.value();
+  if (!key) throw new Error("Missing SENDGRID_API_KEY secret");
+  sgMail.setApiKey(key);
+}
 
-export const webhookHandler = functions.https.onRequest(async (req, res): Promise<void> => {
+async function sendEmail(toList: string[], subject: string, html: string, textFallback?: string) {
+  if (!toList.length) return;
+
+  setApiKey();
+  await sgMail.sendMultiple({
+    to: toList,
+    from: VERIFIED_FROM,
+    subject,
+    text: textFallback ?? subject,
+    html,
+  });
+}
+
+async function resolveRecipients(uid: string): Promise<string[]> {
+  const recips: string[] = [];
+
+  // client email from users/{uid}
+  const userSnap = await db.collection("users").doc(uid).get();
+  const userEmail = userSnap.get("email");
+  if (userEmail) recips.push(String(userEmail));
+
+  // optional admin / team override via secret (comma-separated)
+  const adminList = (NOTIFY_TO.value() || "")
+    .split(",")
+    .map(s => s.trim())
+    .filter(Boolean);
+  recips.push(...adminList);
+
+  // de-dupe
+  return Array.from(new Set(recips));
+}
+
+// -----------------------------
+// 1) Your webhook: create/update users & projects (NO email here)
+// -----------------------------
+export const webhookHandler = onRequest({ secrets: [SENDGRID_API_KEY, NOTIFY_TO] }, async (req, res) => {
   try {
     if (req.method !== "POST") {
       res.status(405).json({ error: "Only POST requests are allowed" });
@@ -51,19 +77,16 @@ export const webhookHandler = functions.https.onRequest(async (req, res): Promis
       return;
     }
 
-    // --- Ensure Auth user exists (create if not) ---
+    // Ensure Auth user exists (create if not)
     let uid: string;
     try {
       const existing = await admin.auth().getUserByEmail(email);
       uid = existing.uid;
-
-      // keep displayName in sync if provided
       if (name && existing.displayName !== name) {
         await admin.auth().updateUser(uid, { displayName: name });
       }
     } catch (e: any) {
       if (e.code === "auth/user-not-found") {
-        // create user with a random password
         const password = Math.random().toString(36).slice(-12);
         const created = await admin.auth().createUser({
           email,
@@ -76,7 +99,7 @@ export const webhookHandler = functions.https.onRequest(async (req, res): Promis
       }
     }
 
-    // --- Upsert user profile in Firestore under 'users/{uid}' ---
+    // Upsert user profile
     await db.collection("users").doc(uid).set(
       {
         name: name || null,
@@ -87,9 +110,8 @@ export const webhookHandler = functions.https.onRequest(async (req, res): Promis
       { merge: true }
     );
 
-    // --- Create projects under 'users/{uid}/projects' ---
+    // Create projects + subcollections (same structure you had)
     if (Array.isArray(projects) && projects.length > 0) {
-      // First, create the project docs
       const projectIds: string[] = [];
       const batch = db.batch();
 
@@ -97,9 +119,7 @@ export const webhookHandler = functions.https.onRequest(async (req, res): Promis
         const projectRef = db.collection("users").doc(uid).collection("projects").doc();
         projectIds.push(projectRef.id);
 
-        const status: ProjectStatus = VALID_STATUS.includes(p?.status)
-          ? p.status
-          : "new";
+        const status: ProjectStatus = VALID_STATUS.includes(p?.status) ? p.status : "new";
 
         batch.set(projectRef, {
           title: p?.title || `Project ${i + 1}`,
@@ -117,7 +137,7 @@ export const webhookHandler = functions.https.onRequest(async (req, res): Promis
 
       await batch.commit();
 
-      // Then, for each project, add subcollections: tasks, comments, links
+      // subcollections
       for (let i = 0; i < projects.length; i++) {
         const p = projects[i] || {};
         const projectId = projectIds[i];
@@ -128,9 +148,7 @@ export const webhookHandler = functions.https.onRequest(async (req, res): Promis
           const tasksBatch = db.batch();
           p.tasks.forEach((t: any, idx: number) => {
             const tRef = projectRef.collection("tasks").doc();
-            const tStatus: ProjectStatus = VALID_STATUS.includes(t?.status)
-              ? t.status
-              : "new";
+            const tStatus: ProjectStatus = VALID_STATUS.includes(t?.status) ? t.status : "new";
             tasksBatch.set(tRef, {
               title: t?.title || `Task ${idx + 1}`,
               status: tStatus,
@@ -181,23 +199,114 @@ export const webhookHandler = functions.https.onRequest(async (req, res): Promis
   }
 });
 
+// -----------------------------
+// 2) 🔔 NOTIFICATIONS
+// -----------------------------
 
+// a) New comment => notify
+export const notifyOnNewComment = onDocumentCreated(
+  {
+    document: "users/{uid}/projects/{projectId}/comments/{commentId}",
+    secrets: [SENDGRID_API_KEY, NOTIFY_TO],
+  },
+  async (event) => {
+    const { uid, projectId } = event.params;
+    const data = event.data?.data();
+    if (!data) return;
 
-// Start writing functions
-// https://firebase.google.com/docs/functions/typescript
+    const recips = await resolveRecipients(uid);
 
-// For cost control, you can set the maximum number of containers that can be
-// running at the same time. This helps mitigate the impact of unexpected
-// traffic spikes by instead downgrading performance. This limit is a
-// per-function limit. You can override the limit for each function using the
-// `maxInstances` option in the function's options, e.g.
-// `onRequest({ maxInstances: 5 }, (req, res) => { ... })`.
-// NOTE: setGlobalOptions does not apply to functions using the v1 API. V1
-// functions should each use functions.runWith({ maxInstances: 10 }) instead.
-// In the v1 API, each function can only serve one request per container, so
-// this will be the maximum concurrent request count.
+    const projectSnap = await db.collection("users").doc(uid).collection("projects").doc(projectId).get();
+    const projectTitle = projectSnap.get("title") || projectId;
 
-// export const helloWorld = onRequest((request, response) => {
-//   logger.info("Hello logs!", {structuredData: true});
-//   response.send("Hello from Firebase!");
-// });
+    const author = data.author || "Someone";
+    const text = data.text || "";
+
+    const subject = `💬 New comment on "${projectTitle}"`;
+    const html = `
+      <p><b>${author}</b> left a comment on <b>${projectTitle}</b>:</p>
+      <blockquote>${escapeHtml(text)}</blockquote>
+      <p>Open your portal: <a href="https://portal.moguldesign.agency/">portal.moguldesign.agency</a></p>
+    `;
+
+    await sendEmail(recips, subject, html, `${author} commented: ${text}`);
+  }
+);
+
+// b) New task => notify
+export const notifyOnNewTask = onDocumentCreated(
+  {
+    document: "users/{uid}/projects/{projectId}/tasks/{taskId}",
+    secrets: [SENDGRID_API_KEY, NOTIFY_TO],
+  },
+  async (event) => {
+    const { uid, projectId } = event.params;
+    const data = event.data?.data();
+    if (!data) return;
+
+    const recips = await resolveRecipients(uid);
+
+    const projectSnap = await db.collection("users").doc(uid).collection("projects").doc(projectId).get();
+    const projectTitle = projectSnap.get("title") || projectId;
+
+    const title = data.title || "New Task";
+    const status = data.status || "new";
+
+    const subject = `🆕 New task in "${projectTitle}"`;
+    const html = `
+      <p>New task added in <b>${projectTitle}</b>:</p>
+      <ul>
+        <li><b>Title:</b> ${escapeHtml(title)}</li>
+        <li><b>Status:</b> ${escapeHtml(status)}</li>
+      </ul>
+      <p>Open your portal: <a href="https://portal.moguldesign.agency/">portal.moguldesign.agency</a></p>
+    `;
+
+    await sendEmail(recips, subject, html, `New task: ${title} [${status}]`);
+  }
+);
+
+// c) Project status change => notify
+export const notifyOnProjectStatusChange = onDocumentUpdated(
+  {
+    document: "users/{uid}/projects/{projectId}",
+    secrets: [SENDGRID_API_KEY, NOTIFY_TO],
+  },
+  async (event) => {
+    const { uid, projectId } = event.params;
+    const before = event.data?.before?.data();
+    const after = event.data?.after?.data();
+    if (!before || !after) return;
+
+    const prev = before.status;
+    const next = after.status;
+    if (prev === next) return; // only notify on actual change
+
+    const recips = await resolveRecipients(uid);
+
+    const projectTitle = after.title || projectId;
+
+    const subject = `🔄 "${projectTitle}" moved: ${prev} → ${next}`;
+    const html = `
+      <p>Project <b>${projectTitle}</b> status changed:</p>
+      <p><b>${escapeHtml(String(prev))}</b> → <b>${escapeHtml(String(next))}</b></p>
+      <p>Open your portal: <a href="https://portal.moguldesign.agency/">portal.moguldesign.agency</a></p>
+    `;
+
+    await sendEmail(recips, subject, html, `Status: ${prev} → ${next}`);
+  }
+);
+
+// -----------------------------
+// utils
+// -----------------------------
+function escapeHtml(str: string): string {
+  const s = String(str);
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+

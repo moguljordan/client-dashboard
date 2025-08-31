@@ -22,6 +22,9 @@ import {
   DropResult,
 } from "@hello-pangea/dnd";
 
+// ✅ NEW: import the NotificationBell you already created
+import NotificationBell from "@/components/NotificationBell";
+
 type ProjectStatus = "new" | "in-progress" | "review" | "done";
 
 interface Project {
@@ -84,7 +87,7 @@ function getDueDateClass(dueDate?: string) {
 // Replaced blue tag style with orange to match the new accent color
 const TAG_COLOR_CLASSES = [
   "bg-emerald-100 text-emerald-700 border-emerald-200",
-  "bg-orange-100 text-orange-700 border-orange-200", // Changed from blue
+  "bg-orange-100 text-orange-700 border-orange-200",
   "bg-violet-100 text-violet-700 border-violet-200",
   "bg-rose-100 text-rose-700 border-rose-200",
   "bg-amber-100 text-amber-700 border-amber-200",
@@ -293,8 +296,20 @@ export default function DashboardPage() {
       author: user.displayName || user.email || "Unknown",
       createdAt: serverTimestamp(),
     });
+    // ✅ NEW: create a notification for the project owner
+    try {
+      const ownerUid = selectedProject?.assignedTo || targetUid!;
+      await addDoc(collection(db, "users", ownerUid, "notifications"), {
+        type: "comment",
+        title: `New comment on "${selectedProject?.title || "project"}"`,
+        body: newComment,
+        projectId: selectedProjectId,
+        createdAt: serverTimestamp(),
+        read: false,
+      });
+    } catch {}
     setNewComment("");
-  }, [projectsCol, selectedProjectId, newComment, user]);
+  }, [projectsCol, selectedProjectId, newComment, user, selectedProject, targetUid]);
 
   const addLink = useCallback(async () => {
     if (!projectsCol || !selectedProjectId || !newLinkUrl.trim()) return;
@@ -305,9 +320,22 @@ export default function DashboardPage() {
       url: newLinkUrl,
       createdAt: serverTimestamp(),
     });
+    // ✅ NEW: notify owner about new link
+    try {
+      const ownerUid = selectedProject?.assignedTo || targetUid!;
+      await addDoc(collection(db, "users", ownerUid, "notifications"), {
+        type: "link",
+        title: `New link: ${newLinkTitle || newLinkUrl}`,
+        body: selectedProject?.title || "Project",
+        projectId: selectedProjectId,
+        createdAt: serverTimestamp(),
+        read: false,
+        link: newLinkUrl,
+      });
+    } catch {}
     setNewLinkTitle("");
     setNewLinkUrl("");
-  }, [projectsCol, selectedProjectId, newLinkTitle, newLinkUrl]);
+  }, [projectsCol, selectedProjectId, newLinkTitle, newLinkUrl, selectedProject, targetUid]);
 
   const deleteLinkById = useCallback(
     async (linkId: string) => {
@@ -458,25 +486,29 @@ export default function DashboardPage() {
               </p>
             </div>
 
-            {/* Admin: client switcher */}
-            {role === "admin" && (
-              <div className="flex items-center gap-3">
-                <label className="text-sm font-medium text-gray-800">
-                  Viewing:
-                </label>
-                <select
-                  value={selectedUserId ?? ""}
-                  onChange={(e) => setSelectedUserId(e.target.value)}
-                  className="bg-white border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
-                >
-                  {allUsers.map((u) => (
-                    <option key={u.id} value={u.id}>
-                      {u.email}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
+            {/* Right side: admin switcher + bell */}
+            <div className="flex items-center gap-3">
+              {role === "admin" && (
+                <>
+                  <label className="text-sm font-medium text-gray-800">
+                    Viewing:
+                  </label>
+                  <select
+                    value={selectedUserId ?? ""}
+                    onChange={(e) => setSelectedUserId(e.target.value)}
+                    className="bg-white border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-200 focus:border-orange-100"
+                  >
+                    {allUsers.map((u) => (
+                      <option key={u.id} value={u.id}>
+                        {u.email}
+                      </option>
+                    ))}
+                  </select>
+                </>
+              )}
+              {/* ✅ NEW: Notifications bell */}
+              <NotificationBell />
+            </div>
           </div>
         </div>
       </div>
@@ -532,11 +564,11 @@ export default function DashboardPage() {
                           <input
                             name="projectTitle"
                             placeholder="Add a new task..."
-                            className="flex-1 bg-white border border-gray-300 rounded-lg px-3 py-2 text-sm text-black placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-orange-500 transition-colors"
+                            className="flex-1 bg-white border border-gray-300 rounded-lg px-3 py-2 text-sm text-black placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-orange-100 focus:border-orange-200 transition-colors"
                           />
                           <button
                             type="submit"
-                            className="bg-orange-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-orange-700 transition-colors focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-2"
+                            className="bg-orange-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-orange-700 transition-colors focus:outline-none focus:ring-2 focus:ring-orange-100 focus:ring-offset-2"
                           >
                             Add
                           </button>
@@ -571,11 +603,25 @@ export default function DashboardPage() {
                                   {project.status !== "done" && (
                                     <button
                                       title="Mark as done"
-                                      onClick={(e) => {
+                                      onClick={async (e) => {
                                         e.stopPropagation();
-                                        void updateProject(project.id, {
-                                          status: "done",
-                                        });
+                                        // change status
+                                        await updateProject(project.id, { status: "done" });
+                                        // ✅ NEW: notify owner
+                                        try {
+                                          const ownerUid = project.assignedTo || targetUid!;
+                                          await addDoc(
+                                            collection(db, "users", ownerUid, "notifications"),
+                                            {
+                                              type: "status",
+                                              title: `Status changed to "done"`,
+                                              body: project.title,
+                                              projectId: project.id,
+                                              createdAt: serverTimestamp(),
+                                              read: false,
+                                            }
+                                          );
+                                        } catch {}
                                       }}
                                       className="opacity-0 group-hover:opacity-100 text-emerald-600 hover:text-emerald-700 text-lg leading-none transition-all"
                                     >
@@ -633,9 +679,7 @@ export default function DashboardPage() {
             <p className="text-xs text-gray-500">
               © 2025 Mogul Design Agency. All rights reserved.
             </p>
-            <p className="text-xs text-gray-400">
-              Client Dashboard™
-            </p>
+            <p className="text-xs text-gray-400">Client Dashboard™</p>
           </div>
         </div>
       </footer>
@@ -659,9 +703,21 @@ export default function DashboardPage() {
                 <div className="flex items-center gap-2">
                   {selectedProject.status !== "done" && (
                     <button
-                      onClick={() =>
-                        void updateProject(selectedProject.id, { status: "done" })
-                      }
+                      onClick={async () => {
+                        await updateProject(selectedProject.id, { status: "done" });
+                        // ✅ NEW: notify owner
+                        try {
+                          const ownerUid = selectedProject.assignedTo || targetUid!;
+                          await addDoc(collection(db, "users", ownerUid, "notifications"), {
+                            type: "status",
+                            title: `Status changed to "done"`,
+                            body: selectedProject.title,
+                            projectId: selectedProject.id,
+                            createdAt: serverTimestamp(),
+                            read: false,
+                          });
+                        } catch {}
+                      }}
                       className="px-4 py-2 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700 transition-colors"
                     >
                       Mark Done
@@ -697,7 +753,7 @@ export default function DashboardPage() {
                       value={editDesc}
                       onChange={(e) => setEditDesc(e.target.value)}
                       placeholder="Add a detailed description..."
-                      className="w-full min-h-[140px] bg-white border border-gray-300 rounded-lg px-4 py-3 text-sm text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-orange-500 resize-y"
+                      className="w-full min-h-[140px] bg-white border border-gray-300 rounded-lg px-4 py-3 text-sm text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-orange-100 focus:border-orange-200 resize-y"
                     />
                   </section>
 
@@ -741,7 +797,7 @@ export default function DashboardPage() {
                       />
                       <button
                         onClick={addComment}
-                        className="px-4 py-2 bg-orange-600 text-white text-sm font-medium rounded-lg hover:bg-orange-700 transition-colors"
+                        className="px-4 py-2 bg-orange-200 text-white text-sm font-medium rounded-lg hover:bg-orange-300 transition-colors"
                       >
                         Post
                       </button>
@@ -774,12 +830,23 @@ export default function DashboardPage() {
                         <label className="text-xs font-medium text-gray-600">Status</label>
                         <select
                           value={selectedProject.status}
-                          onChange={(e) =>
-                            void updateProject(selectedProject.id, {
-                              status: e.target.value as ProjectStatus,
-                            })
-                          }
-                          className="bg-white border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+                          onChange={async (e) => {
+                            const next = e.target.value as ProjectStatus;
+                            await updateProject(selectedProject.id, { status: next });
+                            // ✅ NEW: notify owner on status change
+                            try {
+                              const ownerUid = selectedProject.assignedTo || targetUid!;
+                              await addDoc(collection(db, "users", ownerUid, "notifications"), {
+                                type: "status",
+                                title: `Status changed to "${next}"`,
+                                body: selectedProject.title,
+                                projectId: selectedProject.id,
+                                createdAt: serverTimestamp(),
+                                read: false,
+                              });
+                            } catch {}
+                          }}
+                          className="bg-white border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-orange-200"
                         >
                           {PIPELINE.map((s) => (
                             <option key={s} value={s}>
@@ -823,11 +890,11 @@ export default function DashboardPage() {
                               void addTagToProject();
                             }
                           }}
-                          className="flex-1 bg-white border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+                          className="flex-1 bg-white border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-orange-100 focus:border-orange-200"
                         />
                          <button
                             onClick={addTagToProject}
-                            className="px-4 py-2 bg-orange-600 text-white text-sm font-medium rounded-lg hover:bg-orange-700 transition-colors"
+                            className="px-4 py-2 bg-orange-200 text-white text-sm font-medium rounded-lg hover:bg-orange-300 transition-colors"
                           >
                             Add
                          </button>
