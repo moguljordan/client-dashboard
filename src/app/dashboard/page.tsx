@@ -46,6 +46,7 @@ interface Comment {
   text: string;
   createdAt: Timestamp | null;
   author: string;
+  authorUid?: string; // 👈 NEW (for permission check; optional for older docs)
 }
 
 interface LinkItem {
@@ -301,7 +302,7 @@ export default function DashboardPage() {
     await addDoc(commentsCol, {
       text: newComment,
       author: user.displayName || user.email || "Unknown",
-      authorUid: user.uid,                 // 👈 NEW: who wrote the comment
+      authorUid: user.uid, // 👈 NEW: who wrote the comment
       createdAt: serverTimestamp(),
     });
     try {
@@ -349,6 +350,19 @@ export default function DashboardPage() {
       const projectRef = doc(projectsCol, selectedProjectId);
       const linksCol = collection(projectRef, "links");
       await deleteDoc(doc(linksCol, linkId));
+    },
+    [projectsCol, selectedProjectId]
+  );
+
+  // ✅ NEW: Delete a comment (author or admin)
+  const deleteCommentById = useCallback(
+    async (commentId: string) => {
+      if (!projectsCol || !selectedProjectId) return;
+      const ok = confirm("Delete this comment?");
+      if (!ok) return;
+      const projectRef = doc(projectsCol, selectedProjectId);
+      const commentsCol = collection(projectRef, "comments");
+      await deleteDoc(doc(commentsCol, commentId));
     },
     [projectsCol, selectedProjectId]
   );
@@ -765,22 +779,37 @@ export default function DashboardPage() {
                         </p>
                       ) : (
                         <div className="space-y-3">
-                          {comments.map((c) => (
-                            <div
-                              key={c.id}
-                              className="border-b border-gray-200 pb-2 last:border-b-0"
-                            >
-                              <div className="flex items-center gap-2 mb-1">
-                                <span className="text-sm font-medium text-gray-800">
-                                  {c.author}
-                                </span>
-                                <span className="text-xs text-gray-500">
-                                  {c.createdAt?.toDate().toLocaleString()}
-                                </span>
+                          {comments.map((c) => {
+                            const canDelete =
+                              role === "admin" || (!!c.authorUid && c.authorUid === user.uid);
+                            return (
+                              <div
+                                key={c.id}
+                                className="border-b border-gray-200 pb-2 last:border-b-0"
+                              >
+                                <div className="flex items-start justify-between gap-2 mb-1">
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-sm font-medium text-gray-800">
+                                      {c.author}
+                                    </span>
+                                    <span className="text-xs text-gray-500">
+                                      {c.createdAt?.toDate().toLocaleString()}
+                                    </span>
+                                  </div>
+                                  {canDelete && (
+                                    <button
+                                      onClick={() => deleteCommentById(c.id)}
+                                      className="text-gray-400 hover:text-red-600 text-xs px-2 py-1 rounded focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-2"
+                                      title="Delete comment"
+                                    >
+                                      Delete
+                                    </button>
+                                  )}
+                                </div>
+                                <p className="text-sm text-gray-700">{c.text}</p>
                               </div>
-                              <p className="text-sm text-gray-700">{c.text}</p>
-                            </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       )}
                     </div>
