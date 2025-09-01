@@ -274,9 +274,13 @@ export default function DashboardPage() {
     async (projectId: string, updates: Partial<Project>) => {
       if (!projectsCol) return;
       const projectRef = doc(projectsCol, projectId);
-      await updateDoc(projectRef, { ...updates, updatedAt: serverTimestamp() });
+      await updateDoc(projectRef, {
+        ...updates,
+        updatedAt: serverTimestamp(),
+        updatedBy: user?.uid || null, // 👈 NEW: who performed this change
+      });
     },
-    [projectsCol]
+    [projectsCol, user]
   );
 
   const deleteProjectById = useCallback(
@@ -297,6 +301,7 @@ export default function DashboardPage() {
     await addDoc(commentsCol, {
       text: newComment,
       author: user.displayName || user.email || "Unknown",
+      authorUid: user.uid,                 // 👈 NEW: who wrote the comment
       createdAt: serverTimestamp(),
     });
     try {

@@ -1,4 +1,5 @@
 'use client';
+
 import { useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
@@ -11,6 +12,13 @@ import {
   Menu,
   X,
   ChevronDown,
+  FileText,
+  CreditCard,
+  ReceiptText,
+  Shield,
+  BarChart3,
+  Bell,
+  HelpCircle,
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -20,7 +28,16 @@ interface SidebarProps {
 export default function Sidebar({ children }: SidebarProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [profileDropdown, setProfileDropdown] = useState(false);
-  const { user, logout } = useAuth();
+
+  // NEW: collapsible groups
+  const [billingOpen, setBillingOpen] = useState(true);
+
+  const { user, role, logout } = useAuth() as {
+    user: { email?: string } | null;
+    role?: 'admin' | 'client' | 'staff' | string;
+    logout: () => Promise<void>;
+  };
+
   const router = useRouter();
   const pathname = usePathname();
 
@@ -33,10 +50,55 @@ export default function Sidebar({ children }: SidebarProps) {
     }
   };
 
-  const navigation = [
-    { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
-    { name: 'Settings', href: '/dashboard/settings', icon: Settings },
-  ];
+  const isActive = (href: string) =>
+    href === '/'
+      ? pathname === href
+      : (pathname || '').startsWith(href);
+
+  const Item = ({
+    href,
+    icon: Icon,
+    children,
+  }: {
+    href: string;
+    icon: any;
+    children: React.ReactNode;
+  }) => (
+    <Link
+      href={href}
+      className={[
+        'flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors',
+        isActive(href)
+          ? 'bg-white text-black'
+          : 'text-neutral-300 hover:text-white hover:bg-neutral-900',
+      ].join(' ')}
+      onClick={() => setSidebarOpen(false)}
+    >
+      <Icon className="w-5 h-5" />
+      {children}
+    </Link>
+  );
+
+  const SubItem = ({
+    href,
+    children,
+  }: {
+    href: string;
+    children: React.ReactNode;
+  }) => (
+    <Link
+      href={href}
+      className={[
+        'block pl-9 pr-3 py-2 rounded-md text-sm transition-colors',
+        isActive(href)
+          ? 'bg-neutral-800 text-white'
+          : 'text-neutral-300 hover:text-white hover:bg-neutral-900',
+      ].join(' ')}
+      onClick={() => setSidebarOpen(false)}
+    >
+      {children}
+    </Link>
+  );
 
   return (
     <div className="min-h-screen bg-black text-white">
@@ -49,7 +111,7 @@ export default function Sidebar({ children }: SidebarProps) {
       )}
 
       {/* Sidebar */}
-      <div
+      <aside
         className={`
           fixed inset-y-0 left-0 z-50 w-64 bg-black border-r border-neutral-800
           transform transition-transform duration-300 ease-in-out lg:translate-x-0
@@ -57,7 +119,7 @@ export default function Sidebar({ children }: SidebarProps) {
         `}
       >
         <div className="flex flex-col h-full">
-          {/* Logo/Brand */}
+          {/* Brand */}
           <div className="flex items-center justify-between h-16 px-6 border-b border-neutral-800">
             <h1 className="font-bold text-xl">Dashboard</h1>
             <button
@@ -70,39 +132,66 @@ export default function Sidebar({ children }: SidebarProps) {
           </div>
 
           {/* Navigation */}
-          <nav className="flex-1 px-4 py-6 space-y-2">
-            {navigation.map((item) => {
-              const Icon = item.icon;
-              const isActive =
-                item.href === '/'
-                  ? pathname === item.href
-                  : pathname?.startsWith(item.href);
-              return (
-                <Link
-                  key={item.name}
-                  href={item.href}
-                  className={[
-                    'flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors',
-                    isActive
-                      ? 'bg-white text-black'
-                      : 'text-neutral-300 hover:text-white hover:bg-neutral-900',
-                  ].join(' ')}
-                >
-                  <Icon className="w-5 h-5" />
-                  {item.name}
-                </Link>
-              );
-            })}
+          <nav className="flex-1 px-4 py-6 space-y-1">
+            {/* Core */}
+            <Item href="/dashboard" icon={LayoutDashboard}>Dashboard</Item>
+
+            {/* Optional analytics/notifications (safe to leave, or remove if routes don’t exist yet) */}
+            <Item href="/dashboard/activity" icon={BarChart3}>Activity</Item>
+            <Item href="/dashboard/notifications" icon={Bell}>Notifications</Item>
+
+            {/* Billing group with nested Invoices */}
+            <button
+              onClick={() => setBillingOpen((v) => !v)}
+              className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm font-medium text-neutral-300 hover:text-white hover:bg-neutral-900 transition-colors"
+              aria-expanded={billingOpen}
+              aria-controls="billing-group"
+            >
+              <span className="flex items-center gap-3">
+                <CreditCard className="w-5 h-5" />
+                Billing
+              </span>
+              <ChevronDown
+                className={`w-4 h-4 transition-transform ${billingOpen ? 'rotate-180' : ''}`}
+              />
+            </button>
+            {billingOpen && (
+              <div id="billing-group" className="space-y-1">
+                <SubItem href="/dashboard/invoices">
+                  <span className="inline-flex items-center gap-2">
+                    <ReceiptText className="w-4 h-4 opacity-70" />
+                    Invoices
+                  </span>
+                </SubItem>
+                <SubItem href="/dashboard/payment-methods">Payment Methods</SubItem>
+                <SubItem href="/dashboard/billing-history">Billing History</SubItem>
+              </div>
+            )}
+
+            {/* Settings */}
+            <Item href="/dashboard/settings" icon={Settings}>Settings</Item>
+
+            {/* Admin-only */}
+            {role === 'admin' && (
+              <>
+                <div className="pt-4 pb-1 px-3 text-xs uppercase tracking-wide text-neutral-500">
+                  Admin
+                </div>
+                <Item href="/admin" icon={Shield}>Admin Overview</Item>
+              </>
+            )}
+
+            {/* Help */}
+            <Item href="/dashboard/help" icon={HelpCircle}>Help & Support</Item>
           </nav>
 
-          {/* User Profile Section */}
+          {/* User Profile */}
           <div className="border-t border-neutral-800 p-4">
             <div className="relative">
               <button
                 onClick={() => setProfileDropdown((v) => !v)}
                 className="flex items-center gap-3 w-full px-3 py-2 rounded-lg text-left text-neutral-300 hover:text-white hover:bg-neutral-900 transition-colors"
               >
-                {/* Profile Image Placeholder */}
                 <div className="w-8 h-8 bg-white text-black rounded-full flex items-center justify-center">
                   <User className="w-4 h-4" />
                 </div>
@@ -113,13 +202,10 @@ export default function Sidebar({ children }: SidebarProps) {
                   <p className="text-xs text-neutral-400 truncate">{user?.email}</p>
                 </div>
                 <ChevronDown
-                  className={`w-4 h-4 transition-transform ${
-                    profileDropdown ? 'rotate-180' : ''
-                  }`}
+                  className={`w-4 h-4 transition-transform ${profileDropdown ? 'rotate-180' : ''}`}
                 />
               </button>
 
-              {/* Profile Dropdown */}
               {profileDropdown && (
                 <div className="absolute bottom-full left-0 right-0 mb-2 bg-black border border-neutral-800 rounded-lg shadow-lg py-1">
                   <button
@@ -147,7 +233,7 @@ export default function Sidebar({ children }: SidebarProps) {
             </div>
           </div>
         </div>
-      </div>
+      </aside>
 
       {/* Main content */}
       <div className="lg:pl-64">
