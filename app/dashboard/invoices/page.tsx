@@ -14,6 +14,7 @@ type Invoice = {
   pdf?: string | null;
   created?: { seconds: number; nanoseconds: number } | Date | null;
   number?: string | null;
+  userId?: string; // added if admin viewing
 };
 
 function fmtAmount(cents?: number | null, currency?: string | null) {
@@ -38,33 +39,75 @@ export default function InvoicesPage() {
         return;
       }
 
-      // make sure the user has a customer id
-      const token = await user.getIdToken();
-      await fetch("/api/stripe/ensure-customer", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      // Get ID token claims to check if admin
+      const token = await user.getIdTokenResult();
+      const isAdmin = !!token.claims.admin;
 
-      // now listen to their invoices
-      const col = collection(db, "users", user.uid, "invoices");
-      const q = query(col, orderBy("created", "desc"));
-      unsub = onSnapshot(q, (snap) => {
-        const items = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Invoice));
-        setRows(items);
-        setStatus(items.length ? "" : "No invoices yet");
-      });
+      if (!isAdmin) {
+        // 🔹 Normal user → ensure customer + listen to their invoices
+        await fetch("/api/stripe/ensure-customer", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token.token}` },
+        });
+
+        const col = collection(db, "users", user.uid, "invoices");
+        const q = query(col, orderBy("created", "desc"));
+        unsub = onSnapshot(q, (snap) => {
+          const items = snap.docs
+            .map((d) => ({ id: d.id, ...d.data() } as Invoice))
+            .filter((inv) => inv.status !== "void" && inv.status !== "draft"); // filter
+          setRows(items);
+          setStatus(items.length ? "" : "No invoices yet");
+        });
+      } else {
+        // 🔹 Admin → listen to all invoices under all users
+        const usersCol = collection(db, "users");
+        unsub = onSnapshot(usersCol, (usersSnap) => {
+          let allInvoices: Invoice[] = [];
+          usersSnap.forEach((userDoc) => {
+            const invCol = collection(db, "users", userDoc.id, "invoices");
+            const q = query(invCol, orderBy("created", "desc"));
+            onSnapshot(q, (invSnap) => {
+              const invoices = invSnap.docs
+                .map(
+                  (d) =>
+                    ({
+                      id: d.id,
+                      userId: userDoc.id,
+                      ...d.data(),
+                    } as Invoice)
+                )
+                .filter((inv) => inv.status !== "void" && inv.status !== "draft"); // filter
+
+              allInvoices = [...allInvoices, ...invoices];
+              setRows([...allInvoices].sort((a, b) => {
+                const aTime =
+                  a.created instanceof Date
+                    ? a.created.getTime()
+                    : (a.created as any)?.seconds * 1000 || 0;
+                const bTime =
+                  b.created instanceof Date
+                    ? b.created.getTime()
+                    : (b.created as any)?.seconds * 1000 || 0;
+                return bTime - aTime;
+              }));
+              setStatus(allInvoices.length ? "" : "No invoices yet");
+            });
+          });
+        });
+      }
     };
 
     run();
-
-    return () => { if (unsub) unsub(); };
+    return () => {
+      if (unsub) unsub();
+    };
   }, []);
-
 
   return (
     <div className="p-6 bg-white text-black min-h-screen">
       <h1 className="text-2xl font-bold mb-4">Invoices</h1>
-      {/* Removed `status` since it's not defined */}
+      {status && <div className="mb-4 text-sm text-gray-600">{status}</div>}
       <div className="overflow-x-auto border rounded shadow-sm">
         <table className="min-w-full text-sm">
           <thead className="bg-gray-100 text-gray-700">
@@ -75,6 +118,7 @@ export default function InvoicesPage() {
               <th className="p-3 text-right font-medium">Amount Paid</th>
               <th className="p-3 text-left font-medium">Links</th>
               <th className="p-3 text-left font-medium">Created</th>
+              <th className="p-3 text-left font-medium">User</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-200">
@@ -115,6 +159,7 @@ export default function InvoicesPage() {
                     return d ? d.toLocaleString() : "-";
                   })()}
                 </td>
+                <td className="p-3">{inv.userId || "-"}</td>
               </tr>
             ))}
           </tbody>

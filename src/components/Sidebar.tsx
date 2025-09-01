@@ -12,12 +12,9 @@ import {
   Menu,
   X,
   ChevronDown,
-  FileText,
   CreditCard,
   ReceiptText,
   Shield,
-  BarChart3,
-  Bell,
   HelpCircle,
 } from 'lucide-react';
 
@@ -28,8 +25,6 @@ interface SidebarProps {
 export default function Sidebar({ children }: SidebarProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [profileDropdown, setProfileDropdown] = useState(false);
-
-  // NEW: collapsible groups
   const [billingOpen, setBillingOpen] = useState(true);
 
   const { user, role, logout } = useAuth() as {
@@ -51,9 +46,7 @@ export default function Sidebar({ children }: SidebarProps) {
   };
 
   const isActive = (href: string) =>
-    href === '/'
-      ? pathname === href
-      : (pathname || '').startsWith(href);
+    href === '/' ? pathname === href : (pathname || '').startsWith(href);
 
   const Item = ({
     href,
@@ -102,7 +95,7 @@ export default function Sidebar({ children }: SidebarProps) {
 
   return (
     <div className="min-h-screen bg-black text-white">
-      {/* Mobile sidebar overlay */}
+      {/* Mobile overlay */}
       {sidebarOpen && (
         <div
           className="fixed inset-0 bg-black/50 z-40 lg:hidden"
@@ -133,14 +126,9 @@ export default function Sidebar({ children }: SidebarProps) {
 
           {/* Navigation */}
           <nav className="flex-1 px-4 py-6 space-y-1">
-            {/* Core */}
             <Item href="/dashboard" icon={LayoutDashboard}>Dashboard</Item>
 
-            {/* Optional analytics/notifications (safe to leave, or remove if routes don’t exist yet) */}
-            <Item href="/dashboard/activity" icon={BarChart3}>Activity</Item>
-            <Item href="/dashboard/notifications" icon={Bell}>Notifications</Item>
-
-            {/* Billing group with nested Invoices */}
+            {/* Billing group (Invoices only) */}
             <button
               onClick={() => setBillingOpen((v) => !v)}
               className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm font-medium text-neutral-300 hover:text-white hover:bg-neutral-900 transition-colors"
@@ -163,15 +151,11 @@ export default function Sidebar({ children }: SidebarProps) {
                     Invoices
                   </span>
                 </SubItem>
-                <SubItem href="/dashboard/payment-methods">Payment Methods</SubItem>
-                <SubItem href="/dashboard/billing-history">Billing History</SubItem>
               </div>
             )}
 
-            {/* Settings */}
             <Item href="/dashboard/settings" icon={Settings}>Settings</Item>
 
-            {/* Admin-only */}
             {role === 'admin' && (
               <>
                 <div className="pt-4 pb-1 px-3 text-xs uppercase tracking-wide text-neutral-500">
@@ -181,11 +165,10 @@ export default function Sidebar({ children }: SidebarProps) {
               </>
             )}
 
-            {/* Help */}
             <Item href="/dashboard/help" icon={HelpCircle}>Help & Support</Item>
           </nav>
 
-          {/* User Profile */}
+          {/* Profile */}
           <div className="border-t border-neutral-800 p-4">
             <div className="relative">
               <button
@@ -235,9 +218,8 @@ export default function Sidebar({ children }: SidebarProps) {
         </div>
       </aside>
 
-      {/* Main content */}
+      {/* Main */}
       <div className="lg:pl-64">
-        {/* Mobile header */}
         <div className="lg:hidden flex items-center justify-between h-16 px-4 bg-black border-b border-neutral-800">
           <button
             onClick={() => setSidebarOpen(true)}
@@ -249,8 +231,6 @@ export default function Sidebar({ children }: SidebarProps) {
           <h1 className="font-semibold">Dashboard</h1>
           <div className="w-6" />
         </div>
-
-        {/* Page content */}
         <main className="min-h-screen">{children}</main>
       </div>
     </div>

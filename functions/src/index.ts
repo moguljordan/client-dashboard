@@ -19,6 +19,7 @@ type Prefs = {
   };
 };
 
+/* ---------- HELPERS ---------- */
 function setApiKey() {
   const key = SENDGRID_API_KEY.value();
   if (!key) throw new Error("Missing SENDGRID_API_KEY");
@@ -40,13 +41,28 @@ async function getPrefs(uid: string): Promise<Required<Prefs>["email"]> {
   };
 }
 
-/* ---------- small helpers ---------- */
 function escapeHtml(str: string): string {
   return String(str)
     .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
 
+// ✅ NEW: log activity into user dashboard
+async function logActivity(
+  uid: string,
+  type: "comment" | "status",
+  projectId: string,
+  payload: Record<string, any>
+) {
+  await db.collection("users").doc(uid).collection("activity").add({
+    type,
+    projectId,
+    payload,
+    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+  });
+}
+
+// existing notification queue
 async function enqueue(
   uid: string,
   type: "comment" | "status",
@@ -59,78 +75,77 @@ async function enqueue(
     projectId,
     payload,
     processed: false,
-    processing: false, // used to “claim” in the digest
+    processing: false,
     createdAt: admin.firestore.FieldValue.serverTimestamp(),
   });
 }
 
-/* ---------- TRIGGERS → QUEUE (no email here) ---------- */
+/* ---------- TRIGGERS → QUEUE + ACTIVITY ---------- */
 
-// New comment by someone other than the project owner
+// New comment (not by project owner)
 export const queueOnNewComment = onDocumentCreated(
   { document: "users/{uid}/projects/{projectId}/comments/{commentId}", secrets: [SENDGRID_API_KEY] },
   async (event) => {
-    const { uid, projectId } = event.params; // uid = project owner
+    const { uid, projectId } = event.params;
     const data = event.data?.data() || {};
     const prefs = await getPrefs(uid);
     if (!prefs.onComment) return;
 
-    // Only notify the owner when someone ELSE comments
     const authorUid = data.authorUid as string | undefined;
-    if (authorUid && authorUid === uid) return;
+    if (authorUid && authorUid === uid) return; // skip self-comments
 
-    await enqueue(uid, "comment", projectId, {
+    const payload = {
       author: data.author || "Someone",
       text: data.text || "",
-    });
+    };
+
+    await enqueue(uid, "comment", projectId, payload);
+    await logActivity(uid, "comment", projectId, payload); // ✅ activity
   }
 );
 
-// Project status change by someone other than the project owner
+// Project status change (not by project owner)
 export const queueOnProjectStatusChange = onDocumentUpdated(
   { document: "users/{uid}/projects/{projectId}", secrets: [SENDGRID_API_KEY] },
   async (event) => {
-    const { uid, projectId } = event.params; // uid = project owner
+    const { uid, projectId } = event.params;
     const before = event.data?.before?.data();
     const after = event.data?.after?.data();
     if (!before || !after) return;
-
-    // Only when status changed
     if (before.status === after.status) return;
 
     const prefs = await getPrefs(uid);
     if (!prefs.onStatusChange) return;
 
-    // Only notify the owner when someone ELSE changed status
     const updatedBy = after.updatedBy as string | undefined;
-    if (updatedBy && updatedBy === uid) return;
+    if (updatedBy && updatedBy === uid) return; // skip self-updates
 
-    await enqueue(uid, "status", projectId, {
+    const payload = {
       title: after.title || projectId,
       from: String(before.status || ""),
       to: String(after.status || ""),
-    });
+    };
+
+    await enqueue(uid, "status", projectId, payload);
+    await logActivity(uid, "status", projectId, payload); // ✅ activity
   }
 );
 
-/* ---------- DIGEST SENDER (every 15m), with CLAIM + DEDUPE ---------- */
+/* ---------- DIGEST SENDER (unchanged) ---------- */
 
 export const sendEmailDigests = onSchedule(
   { schedule: "every 15 minutes", timeZone: "America/Detroit", secrets: [SENDGRID_API_KEY] },
   async () => {
     setApiKey();
-
-    // ignore very fresh events to avoid racing with writes
     const cutoff = admin.firestore.Timestamp.fromDate(new Date(Date.now() - 2 * 60 * 1000));
 
-    // 1) CLAIM: atomically mark a batch of events as `processing: true`
     const toClaim = await db
       .collection("notification_events")
       .where("processed", "==", false)
       .where("processing", "==", false)
       .where("createdAt", "<=", cutoff)
       .orderBy("createdAt", "asc")
-      .limit(500) // safe batch size
+      .limit(500)
       .get();
 
     if (toClaim.empty) return;
@@ -139,29 +154,25 @@ export const sendEmailDigests = onSchedule(
     toClaim.docs.forEach((d) => claimBatch.update(d.ref, { processing: true }));
     await claimBatch.commit();
 
-    // 2) LOAD the claimed docs again (only those with processing=true)
     const claimedIds = toClaim.docs.map((d) => d.id);
     const claimed = await db.getAll(...claimedIds.map((id) => db.doc(`notification_events/${id}`)));
 
-    // Group per user
     const perUser: Record<string, FirebaseFirestore.QueryDocumentSnapshot[]> = {};
     claimed.forEach((snap) => {
       if (!snap.exists) return;
       const data = snap.data()!;
-      if (data.processed === true) return;     // already done somehow
-      if (data.processing !== true) return;    // lost claim; skip
-      if (data.type !== "comment" && data.type !== "status") return; // safety: status + comment only
+      if (data.processed === true) return;
+      if (data.processing !== true) return;
+      if (data.type !== "comment" && data.type !== "status") return;
       const uid = data.uid as string;
       (perUser[uid] ||= []).push(snap as any);
     });
 
-    // 3) For each user, build a de-duplicated digest (collapse by project+type)
     for (const [uid, docs] of Object.entries(perUser)) {
       const email = await getUserEmail(uid);
       const userBatch = db.batch();
 
       if (!email) {
-        // mark as processed so they don't pile up
         docs.forEach((d) => userBatch.update(d.ref, {
           processed: true,
           processing: false,
@@ -172,7 +183,6 @@ export const sendEmailDigests = onSchedule(
         continue;
       }
 
-      // collapse multiple entries for same (type, projectId) to the latest one
       const latestByKey = new Map<string, FirebaseFirestore.QueryDocumentSnapshot>();
       docs.forEach((d) => {
         const k = `${d.get("type")}:${d.get("projectId")}`;
@@ -186,8 +196,6 @@ export const sendEmailDigests = onSchedule(
       });
 
       const finalDocs = Array.from(latestByKey.values());
-
-      // Build minimal, icon-free lines
       const linesHtml: string[] = [];
       const linesText: string[] = [];
 
@@ -215,20 +223,17 @@ export const sendEmailDigests = onSchedule(
         }
       }
 
-      // optional: rate-limit per user (e.g., min 10 min between sends)
       const metaRef = db.doc(`users/${uid}/_meta/emailDigest`);
       const metaSnap = await metaRef.get();
       const lastSentAt = metaSnap.exists ? (metaSnap.get("lastSentAt") as admin.firestore.Timestamp | undefined) : undefined;
       const nowMs = Date.now();
       if (lastSentAt && nowMs - lastSentAt.toMillis() < 10 * 60 * 1000) {
-        // too soon → “unclaim” (so next run can include them)
         finalDocs.forEach((d) => userBatch.update(d.ref, { processing: false }));
         userBatch.set(metaRef, { lastSkippedAt: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
         await userBatch.commit();
         continue;
       }
 
-      // Minimal HTML (let SendGrid/template handle visual design if you want)
       const portalUrl = "https://portal.moguldesign.agency/";
       const count = finalDocs.length;
       const todayStr = new Date().toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
@@ -247,19 +252,14 @@ export const sendEmailDigests = onSchedule(
         `Open your portal: ${portalUrl}`,
       ].join("\n");
 
-      // send once per user — with display name
       await sgMail.send({
         to: email,
-        from: FROM, // 👈 ensures inbox shows “Mogul Design Agency”
+        from: FROM,
         subject: `Project activity (${count}) – ${todayStr}`,
         text,
         html,
-        // If you're using a SendGrid Dynamic Template instead, replace with:
-        // templateId: "d-XXXXXXXXXXXXXXX",
-        // dynamicTemplateData: { count, date: todayStr, items: linesText, portalUrl },
       });
 
-      // mark processed
       finalDocs.forEach((d) => userBatch.update(d.ref, {
         processed: true,
         processing: false,
