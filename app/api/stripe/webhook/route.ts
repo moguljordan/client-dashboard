@@ -3,7 +3,8 @@ import Stripe from "stripe";
 import { adminDb } from "@/lib/firebaseAdmin";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: "2024-06-20",
+  // ✅ Force Stripe to use the 2024-06-20 API version, bypassing type error
+  apiVersion: "2024-06-20" as any,
 });
 
 export const runtime = "nodejs";

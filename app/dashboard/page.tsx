@@ -46,7 +46,7 @@ interface Comment {
   text: string;
   createdAt: Timestamp | null;
   author: string;
-  authorUid?: string; // 👈 NEW (for permission check; optional for older docs)
+  authorUid?: string; // 👈 for permission checks
 }
 
 interface LinkItem {
@@ -151,7 +151,7 @@ export default function DashboardPage() {
     return () => unsub();
   }, [user]);
 
-  // Admin: load all users
+  // Admin: load all users  (🆕 respects incoming Admin hint)
   useEffect(() => {
     if (!user || role !== "admin") return;
     const unsub = onSnapshot(collection(db, "users"), (snap) => {
@@ -160,10 +160,52 @@ export default function DashboardPage() {
         email: (d.data() as any)?.email || d.id,
       }));
       setAllUsers(list);
-      if (!selectedUserId && list.length > 0) setSelectedUserId(list[0].id);
+
+      // only pick first if we don't have a hint coming from Admin
+      const hasHint =
+        typeof window !== "undefined" &&
+        (localStorage.getItem("admin:viewingClientId") ||
+          localStorage.getItem("admin:viewingEmail"));
+
+      if (!selectedUserId && !hasHint && list.length > 0) {
+        setSelectedUserId(list[0].id);
+      }
     });
     return () => unsub();
   }, [user, role, selectedUserId]);
+
+  // 🆕 Read Admin → Dashboard handoff hint and select that client
+  useEffect(() => {
+    if (role !== "admin") return;
+    if (typeof window === "undefined") return;
+    if (allUsers.length === 0) return; // wait until users are loaded
+
+    const hintedId = localStorage.getItem("admin:viewingClientId");
+    const hintedEmail = localStorage.getItem("admin:viewingEmail");
+
+    if (!hintedId && !hintedEmail) return;
+
+    // Try UID first
+    let targetId: string | null =
+      hintedId && allUsers.find((u) => u.id === hintedId)?.id
+        ? hintedId
+        : null;
+
+    // Fallback: match by email (case-insensitive)
+    if (!targetId && hintedEmail) {
+      const lower = hintedEmail.toLowerCase();
+      const found = allUsers.find(
+        (u) => (u.email || "").toLowerCase() === lower
+      );
+      targetId = found?.id || null;
+    }
+
+    if (targetId) setSelectedUserId(targetId);
+
+    // one-time use
+    localStorage.removeItem("admin:viewingClientId");
+    localStorage.removeItem("admin:viewingEmail");
+  }, [role, allUsers]);
 
   // Which UID are we viewing?
   const targetUid = useMemo(() => {
@@ -188,7 +230,7 @@ export default function DashboardPage() {
         const list: Project[] = [];
         snap.forEach((docSnap) => {
           const data = docSnap.data() as Omit<Project, "id">;
-          list.push({ id: docSnap.id, ...data });
+        list.push({ id: docSnap.id, ...data });
         });
         setProjects(list);
         setLoading(false);
@@ -278,7 +320,7 @@ export default function DashboardPage() {
       await updateDoc(projectRef, {
         ...updates,
         updatedAt: serverTimestamp(),
-        updatedBy: user?.uid || null, // 👈 NEW: who performed this change
+        updatedBy: user?.uid || null, // who performed this change
       });
     },
     [projectsCol, user]
@@ -302,7 +344,7 @@ export default function DashboardPage() {
     await addDoc(commentsCol, {
       text: newComment,
       author: user.displayName || user.email || "Unknown",
-      authorUid: user.uid, // 👈 NEW: who wrote the comment
+      authorUid: user.uid,
       createdAt: serverTimestamp(),
     });
     try {
@@ -354,7 +396,7 @@ export default function DashboardPage() {
     [projectsCol, selectedProjectId]
   );
 
-  // ✅ NEW: Delete a comment (author or admin)
+  // Delete a comment (author or admin)
   const deleteCommentById = useCallback(
     async (commentId: string) => {
       if (!projectsCol || !selectedProjectId) return;
